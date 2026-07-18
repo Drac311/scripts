@@ -1,33 +1,41 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
 local Players = game:GetService("Players")
 local VirtualUser = game:GetService("VirtualUser")
 
-local LocalPlayer = Players.LocalPlayer
-local AntiAFKConnection
+local Connection
 
-Tab:CreateToggle({
+local Window = Rayfield:CreateWindow({
+    Name = "Anti Afk",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    },
+    KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Main", 4483362458)
+
+MainTab:CreateToggle({
     Name = "Anti AFK",
     CurrentValue = false,
     Flag = "AntiAFK",
-    Callback = function(Enabled)
-        -- Evita conexiones duplicadas
-        if AntiAFKConnection then
-            AntiAFKConnection:Disconnect()
-            AntiAFKConnection = nil
+    Callback = function(Value)
+        if Connection then
+            Connection:Disconnect()
+            Connection = nil
         end
 
-        if not Enabled then
-            return
+        if Value then
+            Connection = Players.LocalPlayer.Idled:Connect(function()
+                local Camera = workspace.CurrentCamera
+                if Camera then
+                    VirtualUser:Button2Down(Vector2.zero, Camera.CFrame)
+                    task.wait(1)
+                    VirtualUser:Button2Up(Vector2.zero, Camera.CFrame)
+                end
+            end)
         end
-
-        AntiAFKConnection = LocalPlayer.Idled:Connect(function()
-            local Camera = workspace.CurrentCamera
-            if not Camera then
-                return
-            end
-
-            VirtualUser:Button2Down(Vector2.zero, Camera.CFrame)
-            task.wait(1)
-            VirtualUser:Button2Up(Vector2.zero, Camera.CFrame)
-        end)
     end
 })
