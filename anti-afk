@@ -1,0 +1,33 @@
+local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+
+local LocalPlayer = Players.LocalPlayer
+local AntiAFKConnection
+
+Tab:CreateToggle({
+    Name = "Anti AFK",
+    CurrentValue = false,
+    Flag = "AntiAFK",
+    Callback = function(Enabled)
+        -- Evita conexiones duplicadas
+        if AntiAFKConnection then
+            AntiAFKConnection:Disconnect()
+            AntiAFKConnection = nil
+        end
+
+        if not Enabled then
+            return
+        end
+
+        AntiAFKConnection = LocalPlayer.Idled:Connect(function()
+            local Camera = workspace.CurrentCamera
+            if not Camera then
+                return
+            end
+
+            VirtualUser:Button2Down(Vector2.zero, Camera.CFrame)
+            task.wait(1)
+            VirtualUser:Button2Up(Vector2.zero, Camera.CFrame)
+        end)
+    end
+})
