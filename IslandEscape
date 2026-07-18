@@ -1,0 +1,79 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Events = ReplicatedStorage:WaitForChild("Events")
+local AddSpeed = Events:WaitForChild("AddSpeed")
+local RequestRebirth = Events:WaitForChild("RequestRebirth")
+
+local Window = Rayfield:CreateWindow({
+    Name = "Island Escape | +1 Speed",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local Tab = Window:CreateTab("Main", 4483362458)
+
+local SpeedConnection
+local RebirthConnection
+
+Tab:CreateButton({
+    Name = "Rejoin",
+    Callback = function()
+        local Player = Players.LocalPlayer
+
+        if #Players:GetPlayers() <= 1 then
+            TeleportService:Teleport(game.PlaceId, Player)
+        else
+            TeleportService:TeleportToPlaceInstance(
+                game.PlaceId,
+                game.JobId,
+                Player
+            )
+        end
+    end
+})
+
+Tab:CreateToggle({
+    Name = "AutoSpeed",
+    CurrentValue = false,
+    Flag = "AutoSpeed",
+    Callback = function(Value)
+        if SpeedConnection then
+            SpeedConnection:Disconnect()
+            SpeedConnection = nil
+        end
+
+        if Value then
+            SpeedConnection = RunService.RenderStepped:Connect(function()
+                for i = 1, 8 do
+                    AddSpeed:FireServer()
+                end
+            end)
+        end
+    end
+})
+
+Tab:CreateToggle({
+    Name = "AutoRebirth",
+    CurrentValue = false,
+    Flag = "AutoRebirth",
+    Callback = function(Value)
+        if RebirthConnection then
+            RebirthConnection:Disconnect()
+            RebirthConnection = nil
+        end
+
+        if Value then
+            RebirthConnection = RunService.RenderStepped:Connect(function()
+                RequestRebirth:InvokeServer()
+            end)
+        end
+    end
+})
