@@ -1,0 +1,101 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Drac's Public Hub",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation"
+})
+
+local PersonalTab = Window:CreateTab("PERSONAL", 4483362458)
+local DevTab = Window:CreateTab("DEV", 4483362458)
+
+local DevScripts = {
+    {
+        Name = "Infiniteyield",
+        Url = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
+    },
+    {
+        Name = "Cobalt",
+        Url = "https://github.com/notpoiu/cobalt/releases/latest/download/Cobalt.luau"
+    },
+	{
+        Name = "Dex Explorer",
+        Url = "https://github.com/AZYsGithub/DexPlusPlus/releases/latest/download/out.lua"
+    },
+	{
+        Name = "Anti Afk",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/anti-afk"
+    },
+	{
+        Name = "Test",
+        Url = "URL"
+    },
+    {
+        Name = "Test",
+        Url = "URL"
+    }
+}
+
+
+local PersonalScripts = {
+    {
+        Name = "Lagger",
+        Url = "https://api.jnkie.com/api/v1/luascripts/public/472e2a90e26e8bbd25ae9cbcb7a75bf2e2261889724b9fc87ee174e59c07dd25/download%22))()"
+    },
+    {
+        Name = "Sell Lemons",
+        Url = "https://raw.githubusercontent.com/ImNotVoxle/Hub/refs/heads/main/SellLemons"
+    },
+    {
+        Name = "BABFT",
+        Url = "https://luau.pro/loader"
+    },
+    {
+        Name = "Brainrot Police",
+        Url = "https://raw.githubusercontent.com/IcantAffordSynapse/BrainrotPolice/refs/heads/main/src/init.lua"
+    },
+    {
+        Name = "Anti AI - Brainrot Police",
+        Url = "https://raw.githubusercontent.com/PixelCoreStudio/Vantex-AI_Brainrot-Police/refs/heads/main/hubinit.lua"
+    },
+    {
+        Name = "Merge a Nuke",
+        Url = "https://raw.githubusercontent.com/gumanba/Scripts/main/MergeaNuke"
+    },
+    {
+        Name = "Merge For Diamonds",
+        Url = "https://raw.githubusercontent.com/7swazys/good-scripts-using-simple-lib/refs/heads/main/mergeblocksfordiamods.luau"
+    },
+	{
+        Name = "+1 Stat Point Every Click",
+        Url = "https://pastefy.app/nlG1g4SX/raw"
+    },
+    {
+        Name = "Island Escape | +1 Speed",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/IslandEscape"
+    },
+    {
+        Name = "test",
+        Url = "url"
+    }
+}
+
+-- Crear botones de DEV
+for _, script in ipairs(DevScripts) do
+    DevTab:CreateButton({
+        Name = script.Name,
+        Callback = function()
+            loadstring(game:HttpGet(script.Url))()
+        end
+    })
+end
+
+-- Crear botones de PERSONAL
+for _, script in ipairs(PersonalScripts) do
+    PersonalTab:CreateButton({
+        Name = script.Name,
+        Callback = function()
+            loadstring(game:HttpGet(script.Url))()
+        end
+    })
+end
