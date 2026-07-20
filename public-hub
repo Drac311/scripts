@@ -25,14 +25,6 @@ local DevScripts = {
 	{
         Name = "Anti Afk",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/anti-afk"
-    },
-	{
-        Name = "Test",
-        Url = "URL"
-    },
-    {
-        Name = "Test",
-        Url = "URL"
     }
 }
 
@@ -75,8 +67,8 @@ local PersonalScripts = {
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/IslandEscape"
     },
     {
-        Name = "test",
-        Url = "url"
+        Name = "Totally NOT Gambling",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/TotallyNOTGambling"
     }
 }
 
