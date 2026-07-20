@@ -1,306 +1,150 @@
--- === DRAIN THE LAKE AUTO FARMER GUI ===
--- Final Clean Version with Speed Loop Fix
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local BucketUsed = ReplicatedStorage.VerdantRemotes["VDT_Bucket.Used"]
+local BucketPoured = ReplicatedStorage.VerdantRemotes["VDT_Bucket.Poured"]
+local TokensTake = ReplicatedStorage.VerdantRemotes["VDT_Tokens.Take"]
+local ChestOpen = ReplicatedStorage.VerdantRemotes["VDT_Chest.Open"]
 
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local human = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-
-local targetSpeed = 16
 
 player.CharacterAdded:Connect(function(char)
     character = char
-    human = char:WaitForChild("Humanoid")
     rootPart = char:WaitForChild("HumanoidRootPart")
-    human.WalkSpeed = targetSpeed
 end)
 
--- Main GUI Frame
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "DrainLakeAuto"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = player:WaitForChild("PlayerGui")
+local Window = Rayfield:CreateWindow({
+    Name = "Drain The Lake",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 240, 0, 390)
-MainFrame.Position = UDim2.new(0.5, -120, 0.5, -195)
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.ClipsDescendants = true
-MainFrame.Parent = ScreenGui
+local Tab = Window:CreateTab("Main", 4483362458)
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
-
--- Title
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -40, 0, 40)
-Title.Position = UDim2.new(0, 10, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "💧 DRAIN LAKE AUTO"
-Title.TextColor3 = Color3.fromRGB(0, 255, 200)
-Title.TextSize = 14
-Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = MainFrame
-
--- Minimize Button
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Size = UDim2.new(0, 30, 0, 30)
-MinimizeBtn.Position = UDim2.new(1, -35, 0, 5)
-MinimizeBtn.BackgroundTransparency = 1
-MinimizeBtn.Text = "—"
-MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeBtn.TextSize = 16
-MinimizeBtn.Font = Enum.Font.GothamBold
-MinimizeBtn.Parent = MainFrame
-
-local isMinimized = false
-local originalSize = MainFrame.Size
-
-MinimizeBtn.MouseButton1Click:Connect(function()
-    isMinimized = not isMinimized
-    if isMinimized then
-        MainFrame:TweenSize(UDim2.new(0, 240, 0, 40), "Out", "Quad", 0.2, true)
-        MinimizeBtn.Text = "+"
-    else
-        MainFrame:TweenSize(originalSize, "Out", "Quad", 0.2, true)
-        MinimizeBtn.Text = "—"
-    end
-end)
-
--- Scroll Container
-local Scroll = Instance.new("ScrollingFrame")
-Scroll.Size = UDim2.new(1, 0, 1, -45)
-Scroll.Position = UDim2.new(0, 0, 0, 45)
-Scroll.BackgroundTransparency = 1
-Scroll.CanvasSize = UDim2.new(0, 0, 0, 480)
-Scroll.ScrollBarThickness = 4
-Scroll.Parent = MainFrame
-
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = Scroll
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 6)
-UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
--- Helper function to create buttons
-local function createButton(name, color, callback)
-    local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(1, -20, 0, 38)
-    Btn.BackgroundColor3 = color
-    Btn.Text = name
-    Btn.TextColor3 = Color3.new(1,1,1)
-    Btn.TextSize = 11
-    Btn.Font = Enum.Font.GothamBold
-    Btn.Parent = Scroll
-    
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 6)
-    btnCorner.Parent = Btn
-    
-    Btn.MouseButton1Click:Connect(function()
-        callback(Btn)
-    end)
-    return Btn
-end
-
--- Helper function for textbox inputs
-local function createTextBox(placeholder, callback)
-    local Box = Instance.new("TextBox")
-    Box.Size = UDim2.new(1, -20, 0, 32)
-    Box.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-    Box.PlaceholderText = placeholder
-    Box.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
-    Box.Text = ""
-    Box.TextColor3 = Color3.new(1,1,1)
-    Box.TextSize = 11
-    Box.Font = Enum.Font.Gotham
-    Box.Parent = Scroll
-    
-    local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0, 6)
-    boxCorner.Parent = Box
-    
-    Box.FocusLost:Connect(function(enterPressed)
-        if enterPressed then callback(Box.Text) end
-    end)
-    return Box
-end
-
--- ULTIMATE PROMPT FINDER
-local function getClosestPrompt(maxDistance)
-    local closestPrompt = nil
-    local shortestDistance = maxDistance or 25
-    
-    if not rootPart or not workspace:FindFirstChild("Scripted") then return nil end
-    
-    local allDescendants = workspace.Scripted:GetDescendants()
-    
-    for _, obj in ipairs(allDescendants) do
-        if obj:IsA("ProximityPrompt") then
-            if obj.Parent and obj.Parent.Name == "ProximityPosition" then
-                local distance = (rootPart.Position - obj.Parent.Position).Magnitude
-                if distance < shortestDistance then
-                    shortestDistance = distance
-                    closestPrompt = obj
-                end
-            end
-        end
-    end
-    
-    return closestPrompt
-end
-
--- AUTOMATION TOGGLES
 local autoCollectWater = false
 local autoPourWater = false
 local autoCollectToken = false
 local autoOpenChest = false
-local infJump = false
 
-createButton("AUTO COLLECT WATER", Color3.fromRGB(0, 170, 255), function(btn)
-    autoCollectWater = not autoCollectWater
-    btn.Text = autoCollectWater and "COLLECT WATER: ON" or "AUTO COLLECT WATER"
-    btn.BackgroundColor3 = autoCollectWater and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(0, 170, 255)
-    
-    if autoCollectWater then
-        task.spawn(function()
-            while autoCollectWater do
-                pcall(function()
-                    ReplicatedStorage:WaitForChild("VerdantRemotes"):WaitForChild("VDT_Bucket.Used"):FireServer()
-                end)
-                task.wait(0.15)
-            end
-        end)
+local function getClosestPrompt(maxDistance)
+    local closestPrompt = nil
+    local shortestDistance = maxDistance or 25
+
+    if not rootPart or not workspace:FindFirstChild("Scripted") then
+        return nil
     end
-end)
 
-createButton("AUTO POUR WATER (NEARBY)", Color3.fromRGB(255, 100, 100), function(btn)
-    autoPourWater = not autoPourWater
-    btn.Text = autoPourWater and "POUR WATER: ON" or "AUTO POUR WATER (NEARBY)"
-    btn.BackgroundColor3 = autoPourWater and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 100, 100)
-    
-    if autoPourWater then
-        task.spawn(function()
-            while autoPourWater do
-                local prompt = getClosestPrompt(30)
-                if prompt then
+    for _, obj in ipairs(workspace.Scripted:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Parent and obj.Parent.Name == "ProximityPosition" then
+            local distance = (rootPart.Position - obj.Parent.Position).Magnitude
+
+            if distance < shortestDistance then
+                shortestDistance = distance
+                closestPrompt = obj
+            end
+        end
+    end
+
+    return closestPrompt
+end
+
+Tab:CreateToggle({
+    Name = "Auto Collect Water",
+    CurrentValue = false,
+    Flag = "CollectWater",
+    Callback = function(Value)
+        autoCollectWater = Value
+
+        if Value then
+            task.spawn(function()
+                while autoCollectWater do
                     pcall(function()
-                        ReplicatedStorage:WaitForChild("VerdantRemotes"):WaitForChild("VDT_Bucket.Poured"):FireServer(prompt)
+                        BucketUsed:FireServer()
                     end)
+                    task.wait(0.15)
                 end
-                task.wait(0.2)
-            end
-        end)
-    end
-end)
-
-createButton("AUTO COLLECT TOKEN (NEARBY)", Color3.fromRGB(255, 215, 0), function(btn)
-    autoCollectToken = not autoCollectToken
-    btn.Text = autoCollectToken and "COLLECT TOKEN: ON" or "AUTO COLLECT TOKEN (NEARBY)"
-    btn.BackgroundColor3 = autoCollectToken and Color3.fromRGB(255, 240, 0) or Color3.fromRGB(255, 215, 0)
-    
-    if autoCollectToken then
-        task.spawn(function()
-            while autoCollectToken do
-                local prompt = getClosestPrompt(30)
-                if prompt then
-                    pcall(function()
-                        ReplicatedStorage:WaitForChild("VerdantRemotes"):WaitForChild("VDT_Tokens.Take"):FireServer(prompt)
-                    end)
-                end
-                task.wait(0.2)
-            end
-        end)
-    end
-end)
-
-createButton("AUTO OPEN CHESTS", Color3.fromRGB(140, 80, 255), function(btn)
-    autoOpenChest = not autoOpenChest
-    btn.Text = autoOpenChest and "OPEN CHESTS: ON" or "AUTO OPEN CHESTS"
-    btn.BackgroundColor3 = autoOpenChest and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(140, 80, 255)
-    
-    if autoOpenChest then
-        task.spawn(function()
-            while autoOpenChest do
-                pcall(function()
-                    local chests = workspace.Scripted.Chests:GetChildren()
-                    for _, chest in ipairs(chests) do
-                        if chest:FindFirstChild("Part") then
-                            ReplicatedStorage.VerdantRemotes["VDT_Chest.Open"]:FireServer(chest.Part)
-                        end
-                    end
-                end)
-                task.wait(0.5)
-            end
-        end)
-    end
-end)
-
--- PLAYER MODIFICATIONS SECTION
-createTextBox("Set Speed (Default 16)", function(val)
-    local num = tonumber(val)
-    if num then targetSpeed = num end
-end)
-
-createTextBox("Set Jump Height (Default 50)", function(val)
-    local num = tonumber(val)
-    if num and human then 
-        human.JumpPower = num 
-        human.UseJumpPower = true
-    end
-end)
-
-createButton("INFINITE JUMP: OFF", Color3.fromRGB(70, 70, 85), function(btn)
-    infJump = not infJump
-    btn.Text = infJump and "INFINITE JUMP: ON" or "INFINITE JUMP: OFF"
-    btn.BackgroundColor3 = infJump and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(70, 70, 85)
-end)
-
--- Loop to continuously enforce WalkSpeed and prevent game overrides
-task.spawn(function()
-    while true do
-        if human and human.WalkSpeed ~= targetSpeed then
-            pcall(function()
-                human.WalkSpeed = targetSpeed
             end)
         end
-        task.wait(0.1)
     end
-end)
+})
 
--- Standard Infinite Jump Implementation
-UserInputService.JumpRequest:Connect(function()
-    if infJump and human and rootPart then
-        human:ChangeState(Enum.HumanoidStateType.Jumping)
-        rootPart.Velocity = Vector3.new(rootPart.Velocity.X, human.JumpPower, rootPart.Velocity.Z)
-    end
-end)
+Tab:CreateToggle({
+    Name = "Auto Pour Water",
+    CurrentValue = false,
+    Flag = "PourWater",
+    Callback = function(Value)
+        autoPourWater = Value
 
--- GUI Dragging Logic
-local dragging, dragInput, dragStart, startPos
-MainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
-        end)
+        if Value then
+            task.spawn(function()
+                while autoPourWater do
+                    local prompt = getClosestPrompt(30)
+
+                    if prompt then
+                        pcall(function()
+                            BucketPoured:FireServer(prompt)
+                        end)
+                    end
+
+                    task.wait(0.2)
+                end
+            end)
+        end
     end
-end)
-MainFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
+})
+
+Tab:CreateToggle({
+    Name = "Auto Collect Token",
+    CurrentValue = false,
+    Flag = "CollectToken",
+    Callback = function(Value)
+        autoCollectToken = Value
+
+        if Value then
+            task.spawn(function()
+                while autoCollectToken do
+                    local prompt = getClosestPrompt(30)
+
+                    if prompt then
+                        pcall(function()
+                            TokensTake:FireServer(prompt)
+                        end)
+                    end
+
+                    task.wait(0.2)
+                end
+            end)
+        end
     end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input == dragInput then
-        local delta = input.Position - dragStart
-        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+})
+
+Tab:CreateToggle({
+    Name = "Auto Open Chests",
+    CurrentValue = false,
+    Flag = "OpenChests",
+    Callback = function(Value)
+        autoOpenChest = Value
+
+        if Value then
+            task.spawn(function()
+                while autoOpenChest do
+                    pcall(function()
+                        for _, chest in ipairs(workspace.Scripted.Chests:GetChildren()) do
+                            if chest:FindFirstChild("Part") then
+                                ChestOpen:FireServer(chest.Part)
+                            end
+                        end
+                    end)
+
+                    task.wait(0.5)
+                end
+            end)
+        end
     end
-end)
+})
