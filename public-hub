@@ -69,6 +69,10 @@ local PersonalScripts = {
     {
         Name = "Totally NOT Gambling",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/TotallyNOTGambling"
+    },
+    {
+        Name = "Drain The Lake",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/DrainTheLake"
     }
 }
 
