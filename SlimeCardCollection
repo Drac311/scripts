@@ -1,0 +1,44 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local CollectBankYens = ReplicatedStorage
+    :WaitForChild("Knit")
+    :WaitForChild("Services")
+    :WaitForChild("YenPerSecService")
+    :WaitForChild("RF")
+    :WaitForChild("PlayerCollectBankYens")
+
+local AutoCollect = false
+
+local Window = Rayfield:CreateWindow({
+    Name = "Slime Card Collection",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local Tab = Window:CreateTab("Main", 4483362458)
+
+Tab:CreateToggle({
+    Name = "Auto Collect",
+    CurrentValue = false,
+    Flag = "AutoCollect",
+    Callback = function(Value)
+        AutoCollect = Value
+
+        if Value then
+            task.spawn(function()
+                while AutoCollect do
+                    pcall(function()
+                        CollectBankYens:InvokeServer(false)
+                    end)
+
+                    task.wait(2)
+                end
+            end)
+        end
+    end
+})
