@@ -73,6 +73,10 @@ local PersonalScripts = {
     {
         Name = "Drain The Lake",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/DrainTheLake"
+    },
+    {
+        Name = "Slime Card Collection",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/SlimeCardCollection"
     }
 }
 
