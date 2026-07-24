@@ -63,7 +63,7 @@ local PersonalScripts = {
         Url = "https://pastefy.app/nlG1g4SX/raw"
     },
     {
-        Name = "Island Escape | +1 Speed",
+        Name = "Beach Escape | +1 Speed",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/IslandEscape"
     },
     {
