@@ -64,7 +64,7 @@ local PersonalScripts = {
     },
     {
         Name = "Beach Escape | +1 Speed",
-        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/IslandEscape"
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BeachEscape"
     },
     {
         Name = "Totally NOT Gambling",
