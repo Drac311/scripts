@@ -10,7 +10,7 @@ local AddSpeed = Events:WaitForChild("AddSpeed")
 local RequestRebirth = Events:WaitForChild("RequestRebirth")
 
 local Window = Rayfield:CreateWindow({
-    Name = "Island Escape | +1 Speed",
+    Name = "Beach Escape | +1 Speed",
     LoadingTitle = "Loading...",
     LoadingSubtitle = "Drac's Creation",
     ConfigurationSaving = {
