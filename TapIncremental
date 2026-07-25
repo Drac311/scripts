@@ -1,0 +1,92 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Tap Incremental",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local Tab = Window:CreateTab("Main", 4483362458)
+
+local TapRemote = game:GetService("ReplicatedStorage").Remotes.Tap
+local BuyUpgrade = game:GetService("ReplicatedStorage").Remotes.BuyUpgrade
+local RunService = game:GetService("RunService")
+
+local AutoTap = false
+local AutoMoreTaps = false
+local AutoMoreXP = false
+local AutoFasterTaps = false
+
+Tab:CreateToggle({
+    Name = "Auto Tap",
+    CurrentValue = false,
+    Flag = "AutoTap",
+    Callback = function(Value)
+        AutoTap = Value
+    end
+})
+
+Tab:CreateToggle({
+    Name = "Auto More Taps",
+    CurrentValue = false,
+    Flag = "AutoMoreTaps",
+    Callback = function(Value)
+        AutoMoreTaps = Value
+    end
+})
+
+Tab:CreateToggle({
+    Name = "Auto More XP",
+    CurrentValue = false,
+    Flag = "AutoMoreXP",
+    Callback = function(Value)
+        AutoMoreXP = Value
+    end
+})
+
+Tab:CreateToggle({
+    Name = "Auto Faster Taps",
+    CurrentValue = false,
+    Flag = "AutoFasterTaps",
+    Callback = function(Value)
+        AutoFasterTaps = Value
+    end
+})
+
+RunService.RenderStepped:Connect(function()
+    if AutoTap then
+        for i = 1, 1 do
+            TapRemote:FireServer()
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if AutoMoreTaps then
+            BuyUpgrade:FireServer("Taps", "MoreTaps", "Max")
+        end
+        task.wait(1)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if AutoMoreXP then
+            BuyUpgrade:FireServer("Taps", "MoreXP", "Max")
+        end
+        task.wait(1)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if AutoFasterTaps then
+            BuyUpgrade:FireServer("Taps", "FasterTaps", "Max")
+        end
+        task.wait(1)
+    end
+end)
