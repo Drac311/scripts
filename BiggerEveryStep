@@ -1,1 +1,39 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local GrowCharacter = ReplicatedStorage:WaitForChild("GrowCharacter")
+
+local AutoGrowth = false
+
+local Window = Rayfield:CreateWindow({
+    Name = "Bigger Every Step!",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local Tab = Window:CreateTab("Main", 4483362458)
+
+Tab:CreateToggle({
+    Name = "Auto Growth",
+    CurrentValue = false,
+    Flag = "AutoGrowth",
+    Callback = function(Value)
+        AutoGrowth = Value
+
+        if Value then
+            task.spawn(function()
+                while AutoGrowth do
+                    pcall(function()
+                        GrowCharacter:FireServer()
+                    end)
+
+                    task.wait(0.01)
+                end
+            end)
+        end
+    end
+})
