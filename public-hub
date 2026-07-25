@@ -84,7 +84,7 @@ local PersonalScripts = {
     },
     {
         Name = "Bigger Every Step!",
-        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BiggerEveryStep!"
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BiggerEveryStep"
     }
 }
 
