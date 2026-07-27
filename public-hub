@@ -36,7 +36,7 @@ local PersonalScripts = {
     },
     {
         Name = "Sell Lemons",
-        Url = "https://raw.githubusercontent.com/ImNotVoxle/Hub/refs/heads/main/SellLemons"
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/SellLemons"
     },
     {
         Name = "BABFT",
