@@ -16,7 +16,7 @@ local DevScripts = {
     },
     {
         Name = "Cobalt",
-        Url = "https://github.com/notpoiu/cobalt/releases/latest/download/Cobalt.luau"
+        Url = "https://gitlab.com/upio/cobalt/-/releases/permalink/latest/downloads/Cobalt.luau"
     },
 	{
         Name = "Dex Explorer",
