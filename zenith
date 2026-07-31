@@ -42,7 +42,7 @@ Tab:CreateToggle({
         if Value then
             task.spawn(function()
                 while AutoUpgrades do
-                    for i = 1, 27 do
+                    for i = 1, 45 do
                         if not AutoUpgrades then
                             break
                         end
