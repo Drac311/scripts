@@ -1,0 +1,19 @@
+local player = game.Players.LocalPlayer
+
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
+local pos = root.Position
+
+print(string.format(
+    "X: %.2f\nY: %.2f\nZ: %.2f",
+    pos.X,
+    pos.Y,
+    pos.Z
+))
+
+print(string.format(
+    "Vector3.new(%.2f, %.2f, %.2f)",
+    pos.X,
+    pos.Y,
+    pos.Z
+))
