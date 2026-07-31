@@ -19,6 +19,7 @@ local Event = game:GetService("ReplicatedStorage")
 local AutoUpgrades = false
 local AutoRebirth = false
 local AutoAscension = false
+local AutoAwakening = false
 
 Tab:CreateInput({
     Name = "Replica ID",
@@ -116,6 +117,37 @@ Tab:CreateToggle({
 
                     local t = 10
                     while AutoAscension and t > 0 do
+                        task.wait(1)
+                        t -= 1
+                    end
+                end
+            end)
+        end
+    end
+})
+
+Tab:CreateToggle({
+    Name = "Auto Awakening (cada 3 mins)",
+    CurrentValue = false,
+    Flag = "AutoAwakening",
+    Callback = function(Value)
+        AutoAwakening = Value
+
+        if Value then
+            task.spawn(function()
+                local Event = game:GetService("ReplicatedStorage")
+                    .ReplicaRemoteEvents
+                    .Replica_ReplicaSignal
+
+                while AutoAwakening do
+                    Event:FireServer(
+                        ReplicaID,
+                        "RequestPrestige",
+                        "Awakening"
+                    )
+
+                    local t = 180
+                    while AutoAwakening and t > 0 do
                         task.wait(1)
                         t -= 1
                     end
