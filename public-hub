@@ -23,6 +23,10 @@ local DevScripts = {
         Url = "https://github.com/AZYsGithub/DexPlusPlus/releases/latest/download/out.lua"
     },
 	{
+        Name = "Show Cords",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/cords"
+    },
+	{
         Name = "Anti Afk",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/anti-afk"
     }
