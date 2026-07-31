@@ -87,6 +87,10 @@ local PersonalScripts = {
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/TapIncremental"
     },
     {
+        Name = "Zenith Inc.",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/zenith"
+    },
+    {
         Name = "Bigger Every Step!",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BiggerEveryStep"
     }
