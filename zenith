@@ -12,6 +12,40 @@ local Window = Rayfield:CreateWindow({
 local Tab = Window:CreateTab("Main", 4483362458)
 
 local ReplicaID = 271
+
+local WaitingForReplicaID = false
+
+do
+    local mt = getrawmetatable(game)
+    local old = mt.__namecall
+
+    setreadonly(mt, false)
+
+    mt.__namecall = newcclosure(function(self, ...)
+        local args = {...}
+
+        if WaitingForReplicaID
+            and getnamecallmethod() == "FireServer"
+            and self == game:GetService("ReplicatedStorage").ReplicaRemoteEvents.Replica_ReplicaSignal then
+
+            WaitingForReplicaID = false
+            ReplicaID = tonumber(args[1]) or ReplicaID
+
+            task.spawn(function()
+                Rayfield:Notify({
+                    Title = "Replica ID detectado",
+                    Content = "ID: " .. tostring(ReplicaID),
+                    Duration = 5
+                })
+            end)
+        end
+
+        return old(self, ...)
+    end)
+
+    setreadonly(mt, true)
+end
+
 local Event = game:GetService("ReplicatedStorage")
     .ReplicaRemoteEvents
     .Replica_ReplicaSignal
@@ -30,6 +64,19 @@ Tab:CreateInput({
         if Num then
             ReplicaID = Num
         end
+    end
+})
+
+Tab:CreateButton({
+    Name = "Detect Replica ID",
+    Callback = function()
+        WaitingForReplicaID = true
+
+        Rayfield:Notify({
+            Title = "Detectando...",
+            Content = "Haz una acción que envíe Replica_ReplicaSignal.",
+            Duration = 5
+        })
     end
 })
 
