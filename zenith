@@ -174,7 +174,7 @@ Tab:CreateToggle({
 })
 
 Tab:CreateToggle({
-    Name = "Auto Awakening (cada 3 mins)",
+    Name = "Auto Awakening (cada 20 mins)",
     CurrentValue = false,
     Flag = "AutoAwakening",
     Callback = function(Value)
@@ -193,7 +193,7 @@ Tab:CreateToggle({
                         "Awakening"
                     )
 
-                    local t = 180
+                    local t = 1200
                     while AutoAwakening and t > 0 do
                         task.wait(1)
                         t -= 1
