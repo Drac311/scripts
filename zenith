@@ -341,3 +341,49 @@ Tab:CreateButton({
         end
     end
 })
+
+Tab:CreateButton({
+    Name = "Fish",
+    Callback = function()
+        local Players = game:GetService("Players")
+        local PathfindingService = game:GetService("PathfindingService")
+
+        local player = Players.LocalPlayer
+        local character = player.Character or player.CharacterAdded:Wait()
+        local humanoid = character:WaitForChild("Humanoid")
+        local root = character:WaitForChild("HumanoidRootPart")
+
+        local destination = Vector3.new(-13, 586, -3069)
+
+        local path = PathfindingService:CreatePath({
+            AgentRadius = 2,
+            AgentHeight = 5,
+            AgentCanJump = true,
+            AgentJumpHeight = 7,
+            AgentMaxSlope = 45
+        })
+
+        path:ComputeAsync(root.Position, destination)
+
+        if path.Status == Enum.PathStatus.Success then
+            for _, waypoint in ipairs(path:GetWaypoints()) do
+                if waypoint.Action == Enum.PathWaypointAction.Jump then
+                    humanoid.Jump = true
+                end
+
+                humanoid:MoveTo(waypoint.Position)
+
+                local reached = humanoid.MoveToFinished:Wait()
+                if not reached then
+                    break
+                end
+            end
+        else
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "No se pudo calcular una ruta.",
+                Duration = 3
+            })
+        end
+    end
+})
