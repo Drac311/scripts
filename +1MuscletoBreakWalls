@@ -1,0 +1,53 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "+1 Muscle to Break Walls",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local Tab = Window:CreateTab("Train")
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local TrainEvent = ReplicatedStorage.Remotes.Train
+local PunchEvent = ReplicatedStorage.Remotes.Punch
+
+local TrainEnabled = false
+local PunchEnabled = false
+
+Tab:CreateToggle({
+    Name = "Train x8 por frame",
+    CurrentValue = false,
+    Flag = "TrainToggle",
+
+    Callback = function(Value)
+        TrainEnabled = Value
+    end
+})
+
+Tab:CreateToggle({
+    Name = "Punch x1 por frame",
+    CurrentValue = false,
+    Flag = "PunchToggle",
+
+    Callback = function(Value)
+        PunchEnabled = Value
+    end
+})
+
+RunService.Heartbeat:Connect(function()
+    if TrainEnabled then
+        for i = 1, 8 do
+            TrainEvent:FireServer()
+        end
+    end
+
+    if PunchEnabled then
+        PunchEvent:FireServer("LeftHand")
+    end
+end)
