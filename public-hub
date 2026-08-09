@@ -91,6 +91,10 @@ local PersonalScripts = {
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/zenith"
     },
     {
+        Name = "+1 Muscle to Break Walls",
+        Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/%2B1MuscletoBreakWalls"
+    },
+    {
         Name = "Bigger Every Step!",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BiggerEveryStep"
     }
