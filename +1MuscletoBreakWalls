@@ -1,5 +1,10 @@
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
 local Window = Rayfield:CreateWindow({
     Name = "+1 Muscle to Break Walls",
     LoadingTitle = "Loading...",
@@ -10,9 +15,6 @@ local Window = Rayfield:CreateWindow({
 })
 
 local Tab = Window:CreateTab("Train")
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local TrainEvent = ReplicatedStorage.Remotes.Train
 local PunchEvent = ReplicatedStorage.Remotes.Punch
@@ -37,6 +39,23 @@ Tab:CreateToggle({
 
     Callback = function(Value)
         PunchEnabled = Value
+    end
+})
+
+Tab:CreateButton({
+    Name = "Rejoin",
+    Callback = function()
+        local player = Players.LocalPlayer
+
+        if #Players:GetPlayers() <= 1 then
+            TeleportService:Teleport(game.PlaceId, player)
+        else
+            TeleportService:TeleportToPlaceInstance(
+                game.PlaceId,
+                game.JobId,
+                player
+            )
+        end
     end
 })
 
