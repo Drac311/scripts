@@ -1,0 +1,164 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Grow a Chicken Fighter",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Drac's Creation",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local Tab = Window:CreateTab("Automation")
+
+local Remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+
+local toggles = {
+    Rebirth = false,
+    BuyGenerator = false,
+    TowerStart = false,
+    UpgradeGenerator = false,
+    ExpandCoop = false,
+    UpgradeRecycler = false,
+    TowerContinueDecline = false
+}
+
+local function startLoop(name, interval, callback)
+    task.spawn(function()
+        while toggles[name] do
+            pcall(callback)
+            task.wait(interval)
+        end
+    end)
+end
+
+Tab:CreateToggle({
+    Name = "Auto Rebirth",
+    CurrentValue = false,
+    Flag = "AutoRebirth",
+    Callback = function(Value)
+        toggles.Rebirth = Value
+
+        if Value then
+            startLoop("Rebirth", 10, function()
+                Remotes.Rebirth:InvokeServer()
+            end)
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto Buy Generator 1-6",
+    CurrentValue = false,
+    Flag = "AutoBuyGenerator",
+    Callback = function(Value)
+        toggles.BuyGenerator = Value
+
+        if Value then
+            startLoop("BuyGenerator", 20, function()
+                for i = 1, 6 do
+                    if not toggles.BuyGenerator then
+                        break
+                    end
+
+                    pcall(function()
+                        Remotes.BuyGenerator:InvokeServer(i)
+                    end)
+
+                    task.wait(0.4)
+                end
+            end)
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto Tower Start",
+    CurrentValue = false,
+    Flag = "AutoTowerStart",
+    Callback = function(Value)
+        toggles.TowerStart = Value
+
+        if Value then
+            startLoop("TowerStart", 80, function()
+                Remotes.TowerStart:InvokeServer()
+            end)
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto Tower Continue Decline",
+    CurrentValue = false,
+    Flag = "AutoTowerContinueDecline",
+    Callback = function(Value)
+        toggles.TowerContinueDecline = Value
+
+        if Value then
+            startLoop("TowerContinueDecline", 5, function()
+                Remotes.TowerContinueDecline:FireServer()
+            end)
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto Upgrade Generator 1-6",
+    CurrentValue = false,
+    Flag = "AutoUpgradeGenerator",
+    Callback = function(Value)
+        toggles.UpgradeGenerator = Value
+
+        if Value then
+            startLoop("UpgradeGenerator", 10, function()
+                for i = 1, 6 do
+                    if not toggles.UpgradeGenerator then
+                        break
+                    end
+
+                    pcall(function()
+                        Remotes.UpgradeGenerator:InvokeServer(i)
+                    end)
+
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto Expand Coop",
+    CurrentValue = false,
+    Flag = "AutoExpandCoop",
+    Callback = function(Value)
+        toggles.ExpandCoop = Value
+
+        if Value then
+            startLoop("ExpandCoop", 60, function()
+                Remotes.ExpandCoop:InvokeServer()
+            end)
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto Upgrade Recycler",
+    CurrentValue = false,
+    Flag = "AutoUpgradeRecycler",
+    Callback = function(Value)
+        toggles.UpgradeRecycler = Value
+
+        if Value then
+            startLoop("UpgradeRecycler", 15, function()
+                Remotes.UpgradeRecycler:InvokeServer()
+            end)
+        end
+    end,
+})
+
+Rayfield:Notify({
+    Title = "Drac's Creation",
+    Content = "GUI cargada correctamente.",
+    Duration = 5
+})
