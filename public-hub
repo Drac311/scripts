@@ -95,7 +95,7 @@ local PersonalScripts = {
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/%2B1MuscletoBreakWalls"
     },
     {
-        Name = Grow a Chicken Fighter",
+        Name = Grow a Chicken Fighter [X]",
         Url = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/GrowaChickenFighter"
     },
     {
