@@ -4,6 +4,7 @@
 local TIDAL_URL  = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
 local SELF_URL   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/pvp-qot"
 local WAIT_TIME  = 3
+local KICK_REASON = "Drac's Script - Bye!"
 
 -- ============================================================
 -- REGISTRAR RE-EJECUCIÓN AL TELEPORTARSE
@@ -22,6 +23,7 @@ local SG  = game:GetService("StarterGui")
 local UIS = game:GetService("UserInputService")
 local GS  = game:GetService("GuiService")
 local RS  = game:GetService("ReplicatedStorage")
+local PS  = game:GetService("Players")
 
 -- ============================================================
 -- PERFILES
@@ -110,7 +112,7 @@ local function runTidalWave()
 end
 
 -- ============================================================
--- COLA 1v1 (tecla Y) — con hook __namecall
+-- COLA 1v1 (tecla Y)
 -- ============================================================
 local function queue1v1()
     local Event
@@ -161,6 +163,43 @@ local function queue1v1()
     if not fired then
         warn("[1v1] Error al disparar FireServer:", err)
     end
+end
+
+-- ============================================================
+-- AUTO-KICK (tecla N)
+-- ============================================================
+local function kickSelf()
+    pcall(function()
+        SG:SetCore("SendNotification", {
+            Title = "Kick", Text = "Saliendo del servidor...", Duration = 2,
+        })
+    end)
+
+    task.wait(0.3)  -- dar tiempo a que se muestre la notificación
+
+    local plr = PS.LocalPlayer
+    if not plr then return end
+
+    -- Intento 1: Kick directo
+    local ok = pcall(function()
+        plr:Kick(KICK_REASON)
+    end)
+
+    if ok then return end
+
+    -- Intento 2 (fallback): forzar error en el cliente
+    -- Esto provoca que Roblox te desconecte por "unexpected error".
+    pcall(function()
+        -- Disparar un error en el hilo principal del cliente
+        coroutine.wrap(function()
+            error("Forced disconnect by Drac's Script")
+        end)()
+    end)
+
+    -- Intento 3 (último recurso): cerrar el juego
+    pcall(function()
+        game:Shutdown()
+    end)
 end
 
 -- ============================================================
@@ -222,8 +261,12 @@ end
 state.connection = UIS.InputBegan:Connect(function(input, gameProcessed)
     if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
+    -- Y y N funcionan SIEMPRE (ignoran gameProcessed)
     if input.KeyCode == Enum.KeyCode.Y then
         queue1v1()
+        return
+    elseif input.KeyCode == Enum.KeyCode.N then
+        kickSelf()
         return
     end
 
@@ -256,6 +299,7 @@ local API = {
     SetMobile   = function() state.profile = PROFILES.Mobile end,
     RunTidal    = runTidalWave,
     Queue1v1    = queue1v1,
+    Kick        = kickSelf,
     Exterminate = exterminateSelf,
     SelfURL     = SELF_URL,
     WaitTime    = WAIT_TIME,
