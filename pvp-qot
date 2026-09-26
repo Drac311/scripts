@@ -113,7 +113,6 @@ end
 -- COLA 1v1 (tecla Y) — con hook __namecall
 -- ============================================================
 local function queue1v1()
-    -- 1) Esperar el remoto con seguridad
     local Event
     local ok = pcall(function()
         Event = RS:WaitForChild("MainRS", 5)
@@ -123,7 +122,7 @@ local function queue1v1()
     end)
 
     if not ok or not Event or not Event:IsA("RemoteEvent") then
-        warn("[1v1] No se encontró MatchmakingRequest en la ruta esperada")
+        warn("[1v1] No se encontró MatchmakingRequest")
         pcall(function()
             SG:SetCore("SendNotification", {
                 Title = "1v1", Text = "Remoto no encontrado", Duration = 3,
@@ -132,7 +131,6 @@ local function queue1v1()
         return
     end
 
-    -- 2) Hook temporal de __namecall para forzar el FireServer
     local mt = getrawmetatable(game)
     local oldNamecall = mt.__namecall
     setreadonly(mt, false)
@@ -145,16 +143,13 @@ local function queue1v1()
         return oldNamecall(self, ...)
     end)
 
-    -- 3) Disparar el remoto
     local fired, err = pcall(function()
         Event:FireServer("Queue", "1v1")
     end)
 
-    -- 4) Restaurar el metatable inmediatamente
     mt.__namecall = oldNamecall
     setreadonly(mt, true)
 
-    -- 5) Notificar
     pcall(function()
         SG:SetCore("SendNotification", {
             Title = "1v1",
@@ -165,8 +160,6 @@ local function queue1v1()
 
     if not fired then
         warn("[1v1] Error al disparar FireServer:", err)
-    else
-        print("[1v1] FireServer enviado con exito")
     end
 end
 
@@ -229,13 +222,11 @@ end
 state.connection = UIS.InputBegan:Connect(function(input, gameProcessed)
     if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
-    -- Y funciona SIEMPRE (ignora gameProcessed)
     if input.KeyCode == Enum.KeyCode.Y then
         queue1v1()
         return
     end
 
-    -- El resto respeta gameProcessed
     if gameProcessed then return end
 
     if input.KeyCode == Enum.KeyCode.U then
@@ -252,8 +243,8 @@ end)
 -- ============================================================
 pcall(function()
     SG:SetCore("SendNotification", {
-        Title = "Script activo",
-        Text  = "U=Disp | J=Tidal | Y=1v1 | H=Cerrar",
+        Title    = "Drac's Script",
+        Text     = "Enjoy!",
         Duration = 5,
     })
 end)
