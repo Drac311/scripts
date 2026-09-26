@@ -21,6 +21,8 @@ end
 local SG  = game:GetService("StarterGui")
 local UIS = game:GetService("UserInputService")
 local GS  = game:GetService("GuiService")
+local PS  = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
 
 -- ============================================================
 -- PERFILES
@@ -40,7 +42,7 @@ end
 local UIS_KEYS = { TouchEnabled = true, GamepadEnabled = true, KeyboardEnabled = true, MouseEnabled = true }
 
 -- ============================================================
--- HOOK (una sola vez por sesión, guardamos los __index originales)
+-- HOOK (una sola vez por sesión)
 -- ============================================================
 if not state.hooked then
     local mu = getrawmetatable(UIS)
@@ -122,10 +124,53 @@ local function runTidalWave()
 end
 
 -- ============================================================
+-- FUNCIÓN AUXILIAR: Buscar y pulsar el botón "Close" de Tidal Wave
+-- ============================================================
+local function findAndClickClose(parent)
+    local found = false
+    local ok = pcall(function()
+        for _, obj in ipairs(parent:GetDescendants()) do
+            -- Buscamos botones (TextButton) cuyo texto sea "Close" o similar
+            if obj:IsA("TextButton") then
+                local txt = tostring(obj.Text or ""):lower()
+                if txt == "close" or txt == "cerrar" or txt == "exit" or txt == "salir" then
+                    -- Intento 1: disparar MouseButton1Click
+                    pcall(function()
+                        obj.MouseButton1Click:Fire()
+                    end)
+                    -- Intento 2: llamar a su función Activated por si no tiene conexión
+                    pcall(function()
+                        if obj.Activated then obj.Activated:Fire() end
+                    end)
+                    -- Intento 3: usar VirtualInputManager para simular un clic real
+                    pcall(function()
+                        local VIM = game:GetService("VirtualInputManager")
+                        local pos = obj.AbsolutePosition
+                        local size = obj.AbsoluteSize
+                        VIM:SendMouseButtonEvent(
+                            pos.X + size.X / 2,
+                            pos.Y + size.Y / 2,
+                            0, true, game, 1
+                        )
+                        task.wait(0.05)
+                        VIM:SendMouseButtonEvent(
+                            pos.X + size.X / 2,
+                            pos.Y + size.Y / 2,
+                            0, false, game, 1
+                        )
+                    end)
+                    found = true
+                end
+            end
+        end
+    end)
+    return found
+end
+
+-- ============================================================
 -- FUNCIÓN DE EXTERMINIO (tecla H)
 -- ============================================================
 local function exterminateAll()
-    -- Aviso visual
     pcall(function()
         SG:SetCore("SendNotification", {
             Title    = "EXTERMINIO",
@@ -134,72 +179,73 @@ local function exterminateAll()
         })
     end)
 
-    -- 1) Desconectar hotkeys (U, J, H dejan de responder)
+    -- 1) Desconectar hotkeys
     if state.connection then
         pcall(function() state.connection:Disconnect() end)
         state.connection = nil
     end
 
-    -- 2) Deshacer el hook de UserInputService
+    -- 2) Restaurar hook de UIS
     if state.origUISIndex then
-        local ok = pcall(function()
+        pcall(function()
             local mu = getrawmetatable(UIS)
             setreadonly(mu, false)
             mu.__index = state.origUISIndex
             setreadonly(mu, true)
         end)
-        if not ok then warn("[Exterminio] No se pudo restaurar UIS.__index") end
     end
 
-    -- 3) Deshacer el hook de GuiService
+    -- 3) Restaurar hook de GS
     if state.origGSIndex then
-        local ok = pcall(function()
+        pcall(function()
             local mg = getrawmetatable(GS)
             setreadonly(mg, false)
             mg.__index = state.origGSIndex
             setreadonly(mg, true)
         end)
-        if not ok then warn("[Exterminio] No se pudo restaurar GS.__index") end
     end
 
-    -- 4) Cancelar queue_on_teleport (sobreescribimos con código vacío)
+    -- 4) Cancelar queue_on_teleport
     if queue_on_teleport then
-        pcall(function()
-            queue_on_teleport("")
-        end)
+        pcall(function() queue_on_teleport("") end)
     end
 
-    -- 5) Matar Tidal Wave si está cargado
-    --    Muchos scripts exponen un global con función de unload / destroy.
-    --    Probamos varios nombres comunes.
+    -- 5) Cerrar Tidal Wave pulsando su botón "Close"
     tidalBusy = true  -- evita que se vuelva a lanzar
 
-    local killed = false
-    for _, name in ipairs({
-        "__TidalWave", "TidalWave", "_TidalWave",
-        "__tidalwave", "tidalwave",
-    }) do
-        local target = getgenv()[name]
-        if target then
-            -- Intento 1: función unload
-            if type(target) == "table" and type(target.unload) == "function" then
-                pcall(target.unload)
-                killed = true
-            -- Intento 2: función destroy
-            elseif type(target) == "table" and type(target.destroy) == "function" then
-                pcall(target.destroy)
-                killed = true
-            -- Intento 3: la propia variable es una función
-            elseif type(target) == "function" then
-                pcall(target)
-                killed = true
-            end
-            pcall(function() getgenv()[name] = nil end)
+    local closedByButton = false
+    local containers = {
+        CoreGui,
+        PS.LocalPlayer and PS.LocalPlayer:FindFirstChild("PlayerGui"),
+        game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui"),
+    }
+    for _, container in ipairs(containers) do
+        if container and not closedByButton then
+            closedByButton = findAndClickClose(container)
         end
     end
 
-    -- 6) Cerrar conexiones conocidas de Tidal Wave
-    --    Si el script guardó sus conexiones en getgenv(), las limpiamos.
+    -- 6) Fallback: buscar globals con unload/destroy
+    if not closedByButton then
+        for _, name in ipairs({
+            "__TidalWave", "TidalWave", "_TidalWave",
+            "__tidalwave", "tidalwave", "Tidal_Wave",
+        }) do
+            local target = getgenv()[name]
+            if target then
+                if type(target) == "table" and type(target.unload) == "function" then
+                    pcall(target.unload); closedByButton = true
+                elseif type(target) == "table" and type(target.destroy) == "function" then
+                    pcall(target.destroy); closedByButton = true
+                elseif type(target) == "function" then
+                    pcall(target); closedByButton = true
+                end
+                pcall(function() getgenv()[name] = nil end)
+            end
+        end
+    end
+
+    -- 7) Limpiar conexiones conocidas
     for _, key in ipairs({
         "__tw_connections", "TidalWaveConnections",
         "_tw_connections", "tw_connections",
@@ -215,28 +261,22 @@ local function exterminateAll()
         end
     end
 
-    -- 7) Borrar el estado del device spoofer (para que un re-ejecute
-    --    empiece desde cero sin hooks fantasma)
+    -- 8) Borrar estado
     getgenv().__ds_state = nil
     state = {}
 
-    -- 8) Borrar la API pública
     pcall(function() getgenv().DeviceSpoofer = nil end)
-    if getgenv_device ~= nil then
-        getgenv_device = nil
-    end
+    if getgenv_device ~= nil then getgenv_device = nil end
 
     -- 9) Notificación final
     pcall(function()
         SG:SetCore("SendNotification", {
             Title    = "EXTERMINIO",
-            Text     = killed and "Todo cerrado (Tidal Wave incluido)" or "Todo cerrado",
+            Text     = closedByButton and "Tidal Wave cerrado por botón" or "Cerrado (Tidal Wave no encontrado)",
             Duration = 3,
         })
     end)
 
-    -- 10) El propio script muere aquí: no hay más código que ejecutar
-    --     y la conexión de hotkeys ya está desconectada.
     return
 end
 
@@ -272,14 +312,14 @@ pcall(function()
 end)
 
 local API = {
-    Active    = function() return state.profile and state.profile.name or "None" end,
-    Toggle    = toggleDevice,
-    SetPC     = function() state.profile = PROFILES.PC     end,
-    SetMobile = function() state.profile = PROFILES.Mobile end,
-    RunTidal  = runTidalWave,
+    Active      = function() return state.profile and state.profile.name or "None" end,
+    Toggle      = toggleDevice,
+    SetPC       = function() state.profile = PROFILES.PC     end,
+    SetMobile   = function() state.profile = PROFILES.Mobile end,
+    RunTidal    = runTidalWave,
     Exterminate = exterminateAll,
-    SelfURL   = SELF_URL,
-    WaitTime  = WAIT_TIME,
+    SelfURL     = SELF_URL,
+    WaitTime    = WAIT_TIME,
 }
 
 getgenv().DeviceSpoofer = API
