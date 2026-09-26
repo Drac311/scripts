@@ -1,1 +1,172 @@
+-- ============================================================
+-- CONFIGURACIÓN
+-- ============================================================
+local TARGET_PLACE = 93377485784638
+local TIDAL_URL    = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
 
+-- URL donde TÚ subes ESTE script (para el queue_on_teleport)
+local SELF_URL     = "https://raw.githubusercontent.com/TU-USUARIO/TU-REPO/main/device_spoofer.lua"
+
+-- ============================================================
+-- REGISTRAR RE-EJECUCIÓN AL TELEPORTARSE (primero de todo)
+-- ============================================================
+if queue_on_teleport then
+    queue_on_teleport(([[
+        loadstring(game:HttpGet("%s", true))()
+    ]]):format(SELF_URL))
+end
+
+-- ============================================================
+-- COMPROBACIÓN DE PLACEID
+-- ============================================================
+if game.PlaceId ~= TARGET_PLACE then
+    warn(("[Device Spoofer] PlaceId no coincide (actual: %d). Script detenido.")
+        :format(game.PlaceId))
+    return
+end
+
+-- ============================================================
+-- SERVICIOS
+-- ============================================================
+local SG  = game:GetService("StarterGui")
+local UIS = game:GetService("UserInputService")
+local GS  = game:GetService("GuiService")
+
+-- ============================================================
+-- PERFILES
+-- ============================================================
+local PROFILES = {
+    PC     = { name = "PC",     TouchEnabled = false, GamepadEnabled = false, KeyboardEnabled = true,  MouseEnabled = true,  TenFoot = false },
+    Mobile = { name = "Mobile", TouchEnabled = true,  GamepadEnabled = false, KeyboardEnabled = false, MouseEnabled = false, TenFoot = false },
+}
+
+local state = getgenv().__ds_state or {}
+getgenv().__ds_state = state
+
+if not state.profile then
+    state.profile = PROFILES.PC
+end
+
+local UIS_KEYS = { TouchEnabled = true, GamepadEnabled = true, KeyboardEnabled = true, MouseEnabled = true }
+
+-- ============================================================
+-- HOOK (una sola vez por sesión)
+-- ============================================================
+if not state.hooked then
+    local mu = getrawmetatable(UIS)
+    local ou = mu.__index
+    setreadonly(mu, false)
+    mu.__index = newcclosure(function(self, k)
+        if self == UIS and state.profile and UIS_KEYS[k] then
+            return state.profile[k]
+        end
+        return ou(self, k)
+    end)
+    setreadonly(mu, true)
+
+    local mg = getrawmetatable(GS)
+    local og = mg.__index
+    setreadonly(mg, false)
+    mg.__index = newcclosure(function(self, k)
+        if self == GS and state.profile and k == "IsTenFootInterface" then
+            return newcclosure(function() return state.profile.TenFoot end)
+        end
+        return og(self, k)
+    end)
+    setreadonly(mg, true)
+
+    state.hooked = true
+end
+
+-- ============================================================
+-- FUNCIONES
+-- ============================================================
+local function toggleDevice()
+    if state.profile.name == "PC" then
+        state.profile = PROFILES.Mobile
+    else
+        state.profile = PROFILES.PC
+    end
+
+    pcall(function()
+        SG:SetCore("SendNotification", {
+            Title    = "Device Spoofer",
+            Text     = "Cambiado a \u{2192} " .. state.profile.name,
+            Duration = 2,
+        })
+    end)
+end
+
+local tidalBusy = false
+local function runTidalWave()
+    if tidalBusy then return end
+    tidalBusy = true
+
+    pcall(function()
+        SG:SetCore("SendNotification", {
+            Title    = "Tidal Wave",
+            Text     = "Cargando script...",
+            Duration = 2,
+        })
+    end)
+
+    task.spawn(function()
+        local ok, err = pcall(function()
+            loadstring(game:HttpGet(TIDAL_URL, true))()
+        end)
+        tidalBusy = false
+
+        if not ok then
+            warn("[Tidal Wave] Error:", err)
+            pcall(function()
+                SG:SetCore("SendNotification", {
+                    Title    = "Tidal Wave",
+                    Text     = "Error al cargar (mira la consola)",
+                    Duration = 3,
+                })
+            end)
+        end
+    end)
+end
+
+-- ============================================================
+-- HOTKEYS (U = dispositivo, J = Tidal Wave)
+-- ============================================================
+if state.connection then
+    state.connection:Disconnect()
+end
+
+state.connection = UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+    if input.KeyCode == Enum.KeyCode.U then
+        toggleDevice()
+    elseif input.KeyCode == Enum.KeyCode.J then
+        runTidalWave()
+    end
+end)
+
+-- ============================================================
+-- NOTIFICACIÓN INICIAL + API
+-- ============================================================
+pcall(function()
+    SG:SetCore("SendNotification", {
+        Title    = "Device Spoofer",
+        Text     = "Activo \u{2192} " .. state.profile.name .. "  |  U = Dispositivo, J = Tidal Wave",
+        Duration = 5,
+    })
+end)
+
+local API = {
+    Active    = function() return state.profile and state.profile.name or "None" end,
+    Toggle    = toggleDevice,
+    SetPC     = function() state.profile = PROFILES.PC     end,
+    SetMobile = function() state.profile = PROFILES.Mobile end,
+    RunTidal  = runTidalWave,
+    PlaceId   = TARGET_PLACE,
+}
+
+getgenv().DeviceSpoofer = API
+getgenv_device          = API
+return API
