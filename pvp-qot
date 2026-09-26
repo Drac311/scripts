@@ -3,10 +3,10 @@
 -- ============================================================
 local TIDAL_URL  = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
 local SELF_URL   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/pvp-qot"
-local WAIT_TIME  = 3  -- segundos de espera tras el teleport
+local WAIT_TIME  = 3
 
 -- ============================================================
--- REGISTRAR RE-EJECUCIÓN AL TELEPORTARSE (con espera)
+-- REGISTRAR RE-EJECUCIÓN AL TELEPORTARSE
 -- ============================================================
 if queue_on_teleport then
     queue_on_teleport(([[
@@ -41,7 +41,7 @@ end
 local UIS_KEYS = { TouchEnabled = true, GamepadEnabled = true, KeyboardEnabled = true, MouseEnabled = true }
 
 -- ============================================================
--- HOOK (una sola vez por sesión)
+-- HOOK UIS / GS
 -- ============================================================
 if not state.hooked then
     local mu = getrawmetatable(UIS)
@@ -80,11 +80,10 @@ local function toggleDevice()
     else
         state.profile = PROFILES.PC
     end
-
     pcall(function()
         SG:SetCore("SendNotification", {
-            Title    = "Device Spoofer",
-            Text     = "Cambiado a \u{2192} " .. state.profile.name,
+            Title = "Device Spoofer",
+            Text  = "Cambiado a \u{2192} " .. state.profile.name,
             Duration = 2,
         })
     end)
@@ -94,74 +93,111 @@ local tidalBusy = false
 local function runTidalWave()
     if tidalBusy then return end
     tidalBusy = true
-
     pcall(function()
         SG:SetCore("SendNotification", {
-            Title    = "Tidal Wave",
-            Text     = "Cargando script...",
-            Duration = 2,
+            Title = "Tidal Wave", Text = "Cargando script...", Duration = 2,
         })
     end)
-
     task.spawn(function()
         local ok, err = pcall(function()
             loadstring(game:HttpGet(TIDAL_URL, true))()
         end)
         tidalBusy = false
-
         if not ok then
             warn("[Tidal Wave] Error:", err)
             pcall(function()
                 SG:SetCore("SendNotification", {
-                    Title    = "Tidal Wave",
-                    Text     = "Error al cargar (mira la consola)",
-                    Duration = 3,
+                    Title = "Tidal Wave", Text = "Error: " .. tostring(err), Duration = 3,
                 })
             end)
         end
     end)
 end
 
--- Cola 1v1 (tecla Y)
+-- ============================================================
+-- COLA 1v1 (tecla Y) — versión robusta
+-- ============================================================
 local function queue1v1()
+    -- 1) Verificar que la ruta del remoto existe
+    local Event
     local ok, err = pcall(function()
-        local Event = RS.MainRS.Remotes.MatchmakingRemotes.MatchmakingRequest
-        Event:FireServer("Queue", "1v1")
+        Event = RS:WaitForChild("MainRS", 2)
+                    :WaitForChild("Remotes", 2)
+                    :WaitForChild("MatchmakingRemotes", 2)
+                    :WaitForChild("MatchmakingRequest", 2)
     end)
 
+    if not ok or not Event then
+        warn("[Matchmaking] No se encontró el RemoteEvent. Ruta:")
+        warn("ReplicatedStorage.MainRS.Remotes.MatchmakingRemotes.MatchmakingRequest")
+        pcall(function()
+            SG:SetCore("SendNotification", {
+                Title = "Matchmaking", Text = "Remoto no encontrado", Duration = 3,
+            })
+        end)
+        return
+    end
+
+    -- 2) Intento 1: FireServer directo
+    local fired = false
+    local ok1 = pcall(function()
+        Event:FireServer("Queue", "1v1")
+        fired = true
+    end)
+
+    -- 3) Intento 2: __namecall (fallback si el executor bloquea FireServer)
+    if not fired then
+        local ok2 = pcall(function()
+            local mt = getrawmetatable(game)
+            local oldNamecall = mt.__namecall
+            setreadonly(mt, false)
+            mt.__namecall = newcclosure(function(self, ...)
+                local method = getnamecallmethod()
+                if self == Event and method == "FireServer" then
+                    return oldNamecall(self, ...)
+                end
+                return oldNamecall(self, ...)
+            end)
+            setreadonly(mt, true)
+            -- Forzar el namecall
+            local _ = Event.FireServer
+            Event["FireServer"](Event, "Queue", "1v1")
+            fired = true
+        end)
+        if not ok2 then
+            warn("[Matchmaking] __namecall fallback también falló")
+        end
+    end
+
+    -- 4) Notificación
     pcall(function()
         SG:SetCore("SendNotification", {
-            Title    = "Matchmaking",
-            Text     = ok and "Encolado 1v1" or "Error al encolar",
+            Title = "Matchmaking",
+            Text  = fired and "Encolado 1v1" or "Error al encolar",
             Duration = 2,
         })
     end)
 
-    if not ok then
+    if not fired then
         warn("[Matchmaking] Error:", err)
     end
 end
 
 -- ============================================================
--- FUNCIÓN DE EXTERMINIO PROPIO (tecla H)
--- Solo cierra este script, NO toca Tidal Wave.
+-- EXTERMINIO PROPIO (tecla H)
 -- ============================================================
 local function exterminateSelf()
     pcall(function()
         SG:SetCore("SendNotification", {
-            Title    = "Exterminio",
-            Text     = "Cerrando este script...",
-            Duration = 2,
+            Title = "Exterminio", Text = "Cerrando este script...", Duration = 2,
         })
     end)
 
-    -- 1) Desconectar hotkeys (U, J, Y, H dejan de responder)
     if state.connection then
         pcall(function() state.connection:Disconnect() end)
         state.connection = nil
     end
 
-    -- 2) Restaurar hook de UserInputService
     if state.origUISIndex then
         pcall(function()
             local mu = getrawmetatable(UIS)
@@ -171,7 +207,6 @@ local function exterminateSelf()
         end)
     end
 
-    -- 3) Restaurar hook de GuiService
     if state.origGSIndex then
         pcall(function()
             local mg = getrawmetatable(GS)
@@ -181,46 +216,47 @@ local function exterminateSelf()
         end)
     end
 
-    -- 4) Cancelar queue_on_teleport (no se re-ejecuta más)
     if queue_on_teleport then
         pcall(function() queue_on_teleport("") end)
     end
 
-    -- 5) Borrar estado global
     getgenv().__ds_state = nil
     state = {}
 
-    -- 6) Borrar la API pública
     pcall(function() getgenv().DeviceSpoofer = nil end)
     if getgenv_device ~= nil then getgenv_device = nil end
 
-    -- 7) Notificación final
     pcall(function()
         SG:SetCore("SendNotification", {
-            Title    = "Exterminio",
-            Text     = "Script cerrado",
-            Duration = 2,
+            Title = "Exterminio", Text = "Script cerrado", Duration = 2,
         })
     end)
 end
 
 -- ============================================================
--- HOTKEYS (U, J, Y, H)
+-- HOTKEYS
 -- ============================================================
 if state.connection then
     state.connection:Disconnect()
 end
 
 state.connection = UIS.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
     if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+    -- Para Y no filtramos gameProcessed, así funciona incluso
+    -- con la GUI de Tidal Wave abierta o el chat activo.
+    if input.KeyCode == Enum.KeyCode.Y then
+        queue1v1()
+        return
+    end
+
+    -- El resto sí respeta gameProcessed
+    if gameProcessed then return end
 
     if input.KeyCode == Enum.KeyCode.U then
         toggleDevice()
     elseif input.KeyCode == Enum.KeyCode.J then
         runTidalWave()
-    elseif input.KeyCode == Enum.KeyCode.Y then
-        queue1v1()
     elseif input.KeyCode == Enum.KeyCode.H then
         exterminateSelf()
     end
@@ -231,8 +267,8 @@ end)
 -- ============================================================
 pcall(function()
     SG:SetCore("SendNotification", {
-        Title    = "Script activo",
-        Text     = "U=Disp | J=Tidal | Y=1v1 | H=Cerrar",
+        Title = "Script activo",
+        Text  = "U=Disp | J=Tidal | Y=1v1 | H=Cerrar",
         Duration = 5,
     })
 end)
