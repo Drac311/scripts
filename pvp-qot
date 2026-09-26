@@ -1,28 +1,18 @@
 -- ============================================================
 -- CONFIGURACIÓN
 -- ============================================================
-local TARGET_PLACE = 93377485784638
-local TIDAL_URL    = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
-
--- URL donde TÚ subes ESTE script (para el queue_on_teleport)
-local SELF_URL     = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/pvp-qot"
+local TIDAL_URL  = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
+local SELF_URL   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/pvp-qot"
+local WAIT_TIME  = 3  -- segundos de espera tras el teleport
 
 -- ============================================================
--- REGISTRAR RE-EJECUCIÓN AL TELEPORTARSE (primero de todo)
+-- REGISTRAR RE-EJECUCIÓN AL TELEPORTARSE (con espera)
 -- ============================================================
 if queue_on_teleport then
     queue_on_teleport(([[
+        task.wait(%d)
         loadstring(game:HttpGet("%s", true))()
-    ]]):format(SELF_URL))
-end
-
--- ============================================================
--- COMPROBACIÓN DE PLACEID
--- ============================================================
-if game.PlaceId ~= TARGET_PLACE then
-    warn(("[Device Spoofer] PlaceId no coincide (actual: %d). Script detenido.")
-        :format(game.PlaceId))
-    return
+    ]]):format(WAIT_TIME, SELF_URL))
 end
 
 -- ============================================================
@@ -164,7 +154,8 @@ local API = {
     SetPC     = function() state.profile = PROFILES.PC     end,
     SetMobile = function() state.profile = PROFILES.Mobile end,
     RunTidal  = runTidalWave,
-    PlaceId   = TARGET_PLACE,
+    SelfURL   = SELF_URL,
+    WaitTime  = WAIT_TIME,
 }
 
 getgenv().DeviceSpoofer = API
