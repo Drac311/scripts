@@ -105,81 +105,68 @@ local function runTidalWave()
         tidalBusy = false
         if not ok then
             warn("[Tidal Wave] Error:", err)
-            pcall(function()
-                SG:SetCore("SendNotification", {
-                    Title = "Tidal Wave", Text = "Error: " .. tostring(err), Duration = 3,
-                })
-            end)
         end
     end)
 end
 
 -- ============================================================
--- COLA 1v1 (tecla Y) — versión robusta
+-- COLA 1v1 (tecla Y) — con hook __namecall
 -- ============================================================
 local function queue1v1()
-    -- 1) Verificar que la ruta del remoto existe
+    -- 1) Esperar el remoto con seguridad
     local Event
-    local ok, err = pcall(function()
-        Event = RS:WaitForChild("MainRS", 2)
-                    :WaitForChild("Remotes", 2)
-                    :WaitForChild("MatchmakingRemotes", 2)
-                    :WaitForChild("MatchmakingRequest", 2)
+    local ok = pcall(function()
+        Event = RS:WaitForChild("MainRS", 5)
+                    :WaitForChild("Remotes", 5)
+                    :WaitForChild("MatchmakingRemotes", 5)
+                    :WaitForChild("MatchmakingRequest", 5)
     end)
 
-    if not ok or not Event then
-        warn("[Matchmaking] No se encontró el RemoteEvent. Ruta:")
-        warn("ReplicatedStorage.MainRS.Remotes.MatchmakingRemotes.MatchmakingRequest")
+    if not ok or not Event or not Event:IsA("RemoteEvent") then
+        warn("[1v1] No se encontró MatchmakingRequest en la ruta esperada")
         pcall(function()
             SG:SetCore("SendNotification", {
-                Title = "Matchmaking", Text = "Remoto no encontrado", Duration = 3,
+                Title = "1v1", Text = "Remoto no encontrado", Duration = 3,
             })
         end)
         return
     end
 
-    -- 2) Intento 1: FireServer directo
-    local fired = false
-    local ok1 = pcall(function()
-        Event:FireServer("Queue", "1v1")
-        fired = true
+    -- 2) Hook temporal de __namecall para forzar el FireServer
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if self == Event and (method == "FireServer" or method == "fireServer") then
+            return oldNamecall(self, ...)
+        end
+        return oldNamecall(self, ...)
     end)
 
-    -- 3) Intento 2: __namecall (fallback si el executor bloquea FireServer)
-    if not fired then
-        local ok2 = pcall(function()
-            local mt = getrawmetatable(game)
-            local oldNamecall = mt.__namecall
-            setreadonly(mt, false)
-            mt.__namecall = newcclosure(function(self, ...)
-                local method = getnamecallmethod()
-                if self == Event and method == "FireServer" then
-                    return oldNamecall(self, ...)
-                end
-                return oldNamecall(self, ...)
-            end)
-            setreadonly(mt, true)
-            -- Forzar el namecall
-            local _ = Event.FireServer
-            Event["FireServer"](Event, "Queue", "1v1")
-            fired = true
-        end)
-        if not ok2 then
-            warn("[Matchmaking] __namecall fallback también falló")
-        end
-    end
+    -- 3) Disparar el remoto
+    local fired, err = pcall(function()
+        Event:FireServer("Queue", "1v1")
+    end)
 
-    -- 4) Notificación
+    -- 4) Restaurar el metatable inmediatamente
+    mt.__namecall = oldNamecall
+    setreadonly(mt, true)
+
+    -- 5) Notificar
     pcall(function()
         SG:SetCore("SendNotification", {
-            Title = "Matchmaking",
-            Text  = fired and "Encolado 1v1" or "Error al encolar",
+            Title = "1v1",
+            Text  = fired and "Encolado" or ("Error: " .. tostring(err)),
             Duration = 2,
         })
     end)
 
     if not fired then
-        warn("[Matchmaking] Error:", err)
+        warn("[1v1] Error al disparar FireServer:", err)
+    else
+        print("[1v1] FireServer enviado con exito")
     end
 end
 
@@ -222,7 +209,6 @@ local function exterminateSelf()
 
     getgenv().__ds_state = nil
     state = {}
-
     pcall(function() getgenv().DeviceSpoofer = nil end)
     if getgenv_device ~= nil then getgenv_device = nil end
 
@@ -243,14 +229,13 @@ end
 state.connection = UIS.InputBegan:Connect(function(input, gameProcessed)
     if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
-    -- Para Y no filtramos gameProcessed, así funciona incluso
-    -- con la GUI de Tidal Wave abierta o el chat activo.
+    -- Y funciona SIEMPRE (ignora gameProcessed)
     if input.KeyCode == Enum.KeyCode.Y then
         queue1v1()
         return
     end
 
-    -- El resto sí respeta gameProcessed
+    -- El resto respeta gameProcessed
     if gameProcessed then return end
 
     if input.KeyCode == Enum.KeyCode.U then
