@@ -40,11 +40,12 @@ end
 local UIS_KEYS = { TouchEnabled = true, GamepadEnabled = true, KeyboardEnabled = true, MouseEnabled = true }
 
 -- ============================================================
--- HOOK (una sola vez por sesión)
+-- HOOK (una sola vez por sesión, guardamos los __index originales)
 -- ============================================================
 if not state.hooked then
     local mu = getrawmetatable(UIS)
     local ou = mu.__index
+    state.origUISIndex = ou
     setreadonly(mu, false)
     mu.__index = newcclosure(function(self, k)
         if self == UIS and state.profile and UIS_KEYS[k] then
@@ -56,6 +57,7 @@ if not state.hooked then
 
     local mg = getrawmetatable(GS)
     local og = mg.__index
+    state.origGSIndex = og
     setreadonly(mg, false)
     mg.__index = newcclosure(function(self, k)
         if self == GS and state.profile and k == "IsTenFootInterface" then
@@ -120,7 +122,126 @@ local function runTidalWave()
 end
 
 -- ============================================================
--- HOTKEYS (U = dispositivo, J = Tidal Wave)
+-- FUNCIÓN DE EXTERMINIO (tecla H)
+-- ============================================================
+local function exterminateAll()
+    -- Aviso visual
+    pcall(function()
+        SG:SetCore("SendNotification", {
+            Title    = "EXTERMINIO",
+            Text     = "Cerrando todos los scripts...",
+            Duration = 3,
+        })
+    end)
+
+    -- 1) Desconectar hotkeys (U, J, H dejan de responder)
+    if state.connection then
+        pcall(function() state.connection:Disconnect() end)
+        state.connection = nil
+    end
+
+    -- 2) Deshacer el hook de UserInputService
+    if state.origUISIndex then
+        local ok = pcall(function()
+            local mu = getrawmetatable(UIS)
+            setreadonly(mu, false)
+            mu.__index = state.origUISIndex
+            setreadonly(mu, true)
+        end)
+        if not ok then warn("[Exterminio] No se pudo restaurar UIS.__index") end
+    end
+
+    -- 3) Deshacer el hook de GuiService
+    if state.origGSIndex then
+        local ok = pcall(function()
+            local mg = getrawmetatable(GS)
+            setreadonly(mg, false)
+            mg.__index = state.origGSIndex
+            setreadonly(mg, true)
+        end)
+        if not ok then warn("[Exterminio] No se pudo restaurar GS.__index") end
+    end
+
+    -- 4) Cancelar queue_on_teleport (sobreescribimos con código vacío)
+    if queue_on_teleport then
+        pcall(function()
+            queue_on_teleport("")
+        end)
+    end
+
+    -- 5) Matar Tidal Wave si está cargado
+    --    Muchos scripts exponen un global con función de unload / destroy.
+    --    Probamos varios nombres comunes.
+    tidalBusy = true  -- evita que se vuelva a lanzar
+
+    local killed = false
+    for _, name in ipairs({
+        "__TidalWave", "TidalWave", "_TidalWave",
+        "__tidalwave", "tidalwave",
+    }) do
+        local target = getgenv()[name]
+        if target then
+            -- Intento 1: función unload
+            if type(target) == "table" and type(target.unload) == "function" then
+                pcall(target.unload)
+                killed = true
+            -- Intento 2: función destroy
+            elseif type(target) == "table" and type(target.destroy) == "function" then
+                pcall(target.destroy)
+                killed = true
+            -- Intento 3: la propia variable es una función
+            elseif type(target) == "function" then
+                pcall(target)
+                killed = true
+            end
+            pcall(function() getgenv()[name] = nil end)
+        end
+    end
+
+    -- 6) Cerrar conexiones conocidas de Tidal Wave
+    --    Si el script guardó sus conexiones en getgenv(), las limpiamos.
+    for _, key in ipairs({
+        "__tw_connections", "TidalWaveConnections",
+        "_tw_connections", "tw_connections",
+    }) do
+        local conns = getgenv()[key]
+        if type(conns) == "table" then
+            for _, c in pairs(conns) do
+                if typeof(c) == "RBXScriptConnection" then
+                    pcall(function() c:Disconnect() end)
+                end
+            end
+            getgenv()[key] = nil
+        end
+    end
+
+    -- 7) Borrar el estado del device spoofer (para que un re-ejecute
+    --    empiece desde cero sin hooks fantasma)
+    getgenv().__ds_state = nil
+    state = {}
+
+    -- 8) Borrar la API pública
+    pcall(function() getgenv().DeviceSpoofer = nil end)
+    if getgenv_device ~= nil then
+        getgenv_device = nil
+    end
+
+    -- 9) Notificación final
+    pcall(function()
+        SG:SetCore("SendNotification", {
+            Title    = "EXTERMINIO",
+            Text     = killed and "Todo cerrado (Tidal Wave incluido)" or "Todo cerrado",
+            Duration = 3,
+        })
+    end)
+
+    -- 10) El propio script muere aquí: no hay más código que ejecutar
+    --     y la conexión de hotkeys ya está desconectada.
+    return
+end
+
+-- ============================================================
+-- HOTKEYS (U = dispositivo, J = Tidal Wave, H = exterminar)
 -- ============================================================
 if state.connection then
     state.connection:Disconnect()
@@ -134,6 +255,8 @@ state.connection = UIS.InputBegan:Connect(function(input, gameProcessed)
         toggleDevice()
     elseif input.KeyCode == Enum.KeyCode.J then
         runTidalWave()
+    elseif input.KeyCode == Enum.KeyCode.H then
+        exterminateAll()
     end
 end)
 
@@ -143,7 +266,7 @@ end)
 pcall(function()
     SG:SetCore("SendNotification", {
         Title    = "Device Spoofer",
-        Text     = "Activo \u{2192} " .. state.profile.name .. "  |  U = Dispositivo, J = Tidal Wave",
+        Text     = "Activo \u{2192} " .. state.profile.name .. "  |  U = Disp, J = Tidal, H = Exterminar",
         Duration = 5,
     })
 end)
@@ -154,6 +277,7 @@ local API = {
     SetPC     = function() state.profile = PROFILES.PC     end,
     SetMobile = function() state.profile = PROFILES.Mobile end,
     RunTidal  = runTidalWave,
+    Exterminate = exterminateAll,
     SelfURL   = SELF_URL,
     WaitTime  = WAIT_TIME,
 }
