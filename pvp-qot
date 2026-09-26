@@ -5,7 +5,7 @@ local TARGET_PLACE = 93377485784638
 local TIDAL_URL    = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
 
 -- URL donde TÚ subes ESTE script (para el queue_on_teleport)
-local SELF_URL     = "https://raw.githubusercontent.com/TU-USUARIO/TU-REPO/main/device_spoofer.lua"
+local SELF_URL     = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/pvp-qot"
 
 -- ============================================================
 -- REGISTRAR RE-EJECUCIÓN AL TELEPORTARSE (primero de todo)
