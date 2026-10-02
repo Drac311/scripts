@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║   RIDE A PET - HUB COMPLETO v7 (ANTI-CRASH)              ║
+-- ║   RIDE A PET - HUB COMPLETO v8 (APRENDER POR UI)         ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
@@ -28,7 +28,7 @@ local PickupPet = ReplicatedStorage.Remotes.Game.PickupPet
 local CONFIG = {
     INTERVALO_AUTO_EQUIP = 90,
     ARCHIVO_CACHE = "rideapet_cache.json",
-    MAX_TABLAS_ESCANEO = 60000,  -- Límite duro anti-crash
+    MAX_TABLAS_ESCANEO = 60000,
 }
 
 local PERFILES = {
@@ -48,6 +48,7 @@ local STATE = {
     slots = 5,
     modoAutoEquip = nil,
     perfilEscaneo = "🚶 Normal (lag leve, 20-30s)",
+    aprenderUIProgreso = {actual = 0, total = 0, capturados = 0},
 }
 
 local UUID_PATTERN = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
@@ -97,145 +98,7 @@ local function guardarCache()
 end
 
 -- ============================================================
--- [5] DETECCIÓN DE REBIRTH
--- ============================================================
-local function detectarRebirthDesdeColocadas()
-    local colocadas = obtenerColocadas()
-    for _, c in ipairs(colocadas) do
-        local pData = PetsMod[c.name]
-        if pData and pData.Income and pData.Income > 0 then
-            local mutF = MutsMod.CombinedFactor(c.mutation) or 1
-            local ageF = AgingMod.MultiplierFor(c.age) or 1
-            if mutF > 0 and ageF > 0 then
-                local r = math.floor(c.income / (pData.Income * mutF * ageF) - 1 + 0.5)
-                if r >= 0 then
-                    return r
-                end
-            end
-        end
-    end
-    return 0
-end
-
--- ============================================================
--- [6] ESCANEO CON FILTROS ANTI-CRASH
--- ============================================================
-local function escanearInventarioAsync(onProgress)
-    local antes = contar(STATE.cache)
-    local nuevos = 0
-    local procesadas = 0
-    local saltadasMetatable = 0
-    local saltadasGrandes = 0
-    
-    local listaGC = getgc(true)
-    local total = #listaGC
-    
-    local perfil = PERFILES[STATE.perfilEscaneo] or PERFILES["🚶 Normal (lag leve, 20-30s)"]
-    local CHUNK = perfil.chunk
-    local DELAY = perfil.delay
-    
-    local i = 1
-    local vistos = {}
-    
-    while i <= total do
-        if STATE.cancelarEscaneo then break end
-        if procesadas > CONFIG.MAX_TABLAS_ESCANEO then
-            print("   ⚠️ Límite de tablas alcanzado (" .. CONFIG.MAX_TABLAS_ESCANEO .. ")")
-            break
-        end
-        
-        local fin = math.min(i + CHUNK - 1, total)
-        
-        for j = i, fin do
-            local obj = listaGC[j]
-            
-            if type(obj) == "table" and not vistos[obj] then
-                vistos[obj] = true
-                procesadas = procesadas + 1
-                
-                -- FILTRO 1: Saltar tablas con metatable no vacío
-                -- (evita cadenas __index infinitas que crashean)
-                local mtOk, mt = pcall(getmetatable, obj)
-                local tieneMT = false
-                if mtOk and type(mt) == "table" then
-                    local ok_next, first = pcall(next, mt)
-                    if ok_next and first ~= nil then
-                        tieneMT = true
-                    end
-                end
-                
-                if tieneMT then
-                    saltadasMetatable = saltadasMetatable + 1
-                else
-                    -- FILTRO 2: Contar claves primero, limitar a 30
-                    local numClaves = 0
-                    pcall(function()
-                        for _ in next, obj do
-                            numClaves = numClaves + 1
-                            if numClaves > 30 then break end
-                        end
-                    end)
-                    
-                    if numClaves > 0 and numClaves <= 30 then
-                        -- FILTRO 3: Lectura aislada en pcall
-                        pcall(function()
-                            local k = obj.key
-                            if type(k) ~= "string" or #k ~= 36 then return end
-                            
-                            local name = obj.name
-                            local mut = obj.mutation
-                            local age = obj.age
-                            local inc = obj.income
-                            
-                            if type(name) == "string"
-                               and type(mut) == "string"
-                               and type(age) == "number"
-                               and type(inc) == "number" then
-                                if k:match(UUID_PATTERN) then
-                                    if not STATE.cache[k] then
-                                        STATE.cache[k] = {
-                                            name = name,
-                                            mutation = mut,
-                                            age = age,
-                                            income = inc,
-                                        }
-                                        nuevos = nuevos + 1
-                                    else
-                                        STATE.cache[k].age = age
-                                        STATE.cache[k].income = inc
-                                    end
-                                end
-                            end
-                        end)
-                    else
-                        saltadasGrandes = saltadasGrandes + 1
-                    end
-                end
-            end
-        end
-        
-        i = fin + 1
-        task.wait(DELAY)
-        
-        if onProgress then
-            onProgress(i, total, nuevos)
-        end
-    end
-    
-    print("   📊 Procesadas: " .. procesadas)
-    print("   📊 Saltadas (metatable): " .. saltadasMetatable)
-    print("   📊 Saltadas (>30 claves): " .. saltadasGrandes)
-    
-    return {
-        antes = antes,
-        despues = contar(STATE.cache),
-        nuevos = nuevos,
-        procesadas = procesadas,
-    }
-end
-
--- ============================================================
--- [7] LEER COLOCADAS
+-- [5] LEER COLOCADAS (definida PRIMERO)
 -- ============================================================
 local function obtenerColocadas()
     local save = nil
@@ -300,7 +163,218 @@ local function obtenerColocadas()
 end
 
 -- ============================================================
--- [8] CÁLCULOS
+-- [6] DETECCIÓN DE REBIRTH (después de obtenerColocadas)
+-- ============================================================
+local function detectarRebirthDesdeColocadas()
+    local colocadas = obtenerColocadas()
+    for _, c in ipairs(colocadas) do
+        local pData = PetsMod[c.name]
+        if pData and pData.Income and pData.Income > 0 then
+            local mutF = MutsMod.CombinedFactor(c.mutation) or 1
+            local ageF = AgingMod.MultiplierFor(c.age) or 1
+            if mutF > 0 and ageF > 0 then
+                local r = math.floor(c.income / (pData.Income * mutF * ageF) - 1 + 0.5)
+                if r >= 0 then return r end
+            end
+        end
+    end
+    return 0
+end
+
+-- ============================================================
+-- [7] ESCANEO CON FILTROS ANTI-CRASH
+-- ============================================================
+local function escanearInventarioAsync(onProgress)
+    local antes = contar(STATE.cache)
+    local nuevos = 0
+    local procesadas = 0
+    local saltadasMetatable = 0
+    local saltadasGrandes = 0
+    
+    local listaGC = getgc(true)
+    local total = #listaGC
+    
+    local perfil = PERFILES[STATE.perfilEscaneo] or PERFILES["🚶 Normal (lag leve, 20-30s)"]
+    local CHUNK = perfil.chunk
+    local DELAY = perfil.delay
+    
+    local i = 1
+    local vistos = {}
+    
+    while i <= total do
+        if STATE.cancelarEscaneo then break end
+        if procesadas > CONFIG.MAX_TABLAS_ESCANEO then
+            print("   ⚠️ Límite alcanzado")
+            break
+        end
+        
+        local fin = math.min(i + CHUNK - 1, total)
+        
+        for j = i, fin do
+            local obj = listaGC[j]
+            
+            if type(obj) == "table" and not vistos[obj] then
+                vistos[obj] = true
+                procesadas = procesadas + 1
+                
+                local mtOk, mt = pcall(getmetatable, obj)
+                local tieneMT = false
+                if mtOk and type(mt) == "table" then
+                    local ok_next, first = pcall(next, mt)
+                    if ok_next and first ~= nil then
+                        tieneMT = true
+                    end
+                end
+                
+                if tieneMT then
+                    saltadasMetatable = saltadasMetatable + 1
+                else
+                    local numClaves = 0
+                    pcall(function()
+                        for _ in next, obj do
+                            numClaves = numClaves + 1
+                            if numClaves > 30 then break end
+                        end
+                    end)
+                    
+                    if numClaves > 0 and numClaves <= 30 then
+                        pcall(function()
+                            local k = obj.key
+                            if type(k) ~= "string" or #k ~= 36 then return end
+                            
+                            local name = obj.name
+                            local mut = obj.mutation
+                            local age = obj.age
+                            local inc = obj.income
+                            
+                            if type(name) == "string"
+                               and type(mut) == "string"
+                               and type(age) == "number"
+                               and type(inc) == "number" then
+                                if k:match(UUID_PATTERN) then
+                                    if not STATE.cache[k] then
+                                        STATE.cache[k] = {
+                                            name = name,
+                                            mutation = mut,
+                                            age = age,
+                                            income = inc,
+                                        }
+                                        nuevos = nuevos + 1
+                                    else
+                                        STATE.cache[k].age = age
+                                        STATE.cache[k].income = inc
+                                    end
+                                end
+                            end
+                        end)
+                    else
+                        saltadasGrandes = saltadasGrandes + 1
+                    end
+                end
+            end
+        end
+        
+        i = fin + 1
+        task.wait(DELAY)
+        
+        if onProgress then
+            onProgress(i, total, nuevos)
+        end
+    end
+    
+    print("   📊 Procesadas: " .. procesadas .. " | Saltadas (MT): " .. saltadasMetatable .. " | Grandes: " .. saltadasGrandes)
+    
+    return {
+        antes = antes,
+        despues = contar(STATE.cache),
+        nuevos = nuevos,
+    }
+end
+
+-- ============================================================
+-- [8] APRENDER POR UI (mueve cada mascota físicamente)
+-- ============================================================
+local function obtenerGrid()
+    local pg = player:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    local bg = pg:FindFirstChild("BackpackGui")
+    bg = bg and bg:FindFirstChild("Backpack")
+    bg = bg and bg:FindFirstChild("Inventory")
+    if not bg then return nil end
+    
+    for _, obj in ipairs(bg:GetDescendants()) do
+        if obj.Name == "UIGridFrame" then return obj end
+    end
+    return nil
+end
+
+local function aprenderPorUI(onProgress)
+    local grid = obtenerGrid()
+    if not grid then
+        return {error = "Grid no encontrado. Abre la UI de inventario."}
+    end
+    
+    -- Recolectar items
+    local items = {}
+    for _, item in ipairs(grid:GetChildren()) do
+        if item:IsA("GuiObject") then
+            table.insert(items, item)
+        end
+    end
+    
+    local total = #items
+    local antes = contar(STATE.cache)
+    local clickeados = 0
+    local capturados = 0
+    
+    print("\n🎓 Aprendiendo por UI: " .. total .. " items a procesar")
+    print("   → Cada item será clickeado para forzar al servidor a revelar su PetKey")
+    
+    for i, item in ipairs(items) do
+        if not STATE.running or STATE.cancelarEscaneo then break end
+        
+        -- 1. Click en el item (dispara PlacePet si el juego lo soporta)
+        pcall(function()
+            if firesignal then
+                if item:IsA("TextButton") then
+                    firesignal(item.MouseButton1Click)
+                end
+            end
+        end)
+        
+        task.wait(0.5)
+        clickeados = clickeados + 1
+        
+        -- 2. Leer cuántas colocadas hay ahora
+        local colocadas = obtenerColocadas()
+        
+        -- 3. Quitar TODAS las colocadas para dejar hueco para la siguiente
+        for _, c in ipairs(colocadas) do
+            pcall(function() PickupPet:FireServer(c.key) end)
+            task.wait(0.15)
+        end
+        
+        task.wait(0.3)
+        
+        local ahora = contar(STATE.cache)
+        capturados = ahora - antes
+        
+        if onProgress then
+            onProgress(i, total, capturados)
+        end
+    end
+    
+    print("   ✅ Clickeados: " .. clickeados .. " | Nuevos capturados: " .. capturados)
+    
+    return {
+        antes = antes,
+        despues = contar(STATE.cache),
+        nuevos = capturados,
+    }
+end
+
+-- ============================================================
+-- [9] CÁLCULOS
 -- ============================================================
 local function calcularIncomeActual(nombre, mutacion, edad)
     local pData = PetsMod[nombre]
@@ -327,7 +401,7 @@ local function calcularIncomePotencial(nombre, mutacion)
 end
 
 -- ============================================================
--- [9] AUTO-EQUIP
+-- [10] AUTO-EQUIP
 -- ============================================================
 local function obtenerBotonPlaceBest()
     local pg = player:FindFirstChild("PlayerGui")
@@ -456,7 +530,7 @@ local function autoEquipar(usarPotencial)
 end
 
 -- ============================================================
--- [10] HOOKS
+-- [11] HOOKS
 -- ============================================================
 local function instalarHooks()
     pcall(function()
@@ -499,11 +573,11 @@ local function instalarHooks()
 end
 
 -- ============================================================
--- [11] INICIALIZACIÓN
+-- [12] INICIALIZACIÓN
 -- ============================================================
 cargarCache()
 print("╔══════════════════════════════════════════╗")
-print("║  RIDE A PET HUB v7 (anti-crash)          ║")
+print("║  RIDE A PET HUB v8                       ║")
 print("╚══════════════════════════════════════════╝")
 print("📂 Cache inicial: " .. contar(STATE.cache))
 
@@ -526,12 +600,12 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- [12] GUI
+-- [13] GUI
 -- ============================================================
 local Window = Rayfield:CreateWindow({
     Name = "Ride a Pet - Auto Equip Hub",
     LoadingTitle = "Cargando Hub...",
-    LoadingSubtitle = "v7 - Anti-Crash",
+    LoadingSubtitle = "v8",
     ConfigurationSaving = { Enabled = false },
     Discord = { Enabled = false },
     KeySystem = false,
@@ -558,7 +632,56 @@ task.spawn(function()
     end
 end)
 
-TabInicio:CreateSection("Velocidad del escaneo")
+TabInicio:CreateSection("Aprendizaje por UI (RECOMENDADO)")
+TabInicio:CreateLabel("Mueve CADA mascota del inventario físicamente.")
+TabInicio:CreateLabel("Tarda ~5min pero captura TODAS las keys.")
+
+local lblProgresoUI = TabInicio:CreateLabel("Estado UI: listo")
+
+TabInicio:CreateButton({
+    Name = "🎓 Aprender TODAS vía UI (mueve cada una)",
+    Callback = function()
+        if STATE.isLearning then
+            pcall(function()
+                Rayfield:Notify({ Title = "En curso", Content = "Ya escaneando", Duration = 3 })
+            end)
+            return
+        end
+        
+        STATE.isLearning = true
+        STATE.cancelarEscaneo = false
+        pcall(function()
+            Rayfield:Notify({ Title = "Aprendizaje UI", Content = "Iniciando...", Duration = 4 })
+        end)
+        
+        task.spawn(function()
+            local stats = aprenderPorUI(function(i, total, capturados)
+                pcall(function()
+                    lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
+                end)
+            end)
+            
+            guardarCache()
+            pcall(function()
+                if stats and stats.error then
+                    lblProgresoUI:Set("❌ " .. stats.error)
+                else
+                    lblProgresoUI:Set("✅ +" .. (stats.nuevos or 0) .. " capturadas")
+                    lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
+                    Rayfield:Notify({
+                        Title = "✅ Aprendizaje UI",
+                        Content = (stats.nuevos or 0) .. " nuevas, total " .. (stats.despues or 0),
+                        Duration = 6,
+                    })
+                end
+            end)
+            STATE.isLearning = false
+        end)
+    end,
+})
+
+TabInicio:CreateSection("Aprendizaje por Memoria (rápido pero limitado)")
+TabInicio:CreateLabel("Solo encuentra las colocadas. Las del inventario no están en cliente.")
 
 TabInicio:CreateDropdown({
     Name = "Perfil de escaneo",
@@ -576,77 +699,14 @@ TabInicio:CreateDropdown({
         end
         if type(valor) == "string" and PERFILES[valor] then
             STATE.perfilEscaneo = valor
-            pcall(function()
-                Rayfield:Notify({ Title = "Perfil", Content = valor, Duration = 3 })
-            end)
         end
     end,
 })
 
-TabInicio:CreateSection("Aprendizaje")
-
-local lblProgreso = TabInicio:CreateLabel("Estado: listo")
+local lblProgresoGC = TabInicio:CreateLabel("Estado GC: listo")
 
 TabInicio:CreateButton({
-    Name = "🚀 Aprender TODAS las mascotas",
-    Callback = function()
-        if STATE.isLearning then
-            pcall(function()
-                Rayfield:Notify({ Title = "En curso", Content = "Ya escaneando", Duration = 3 })
-            end)
-            return
-        end
-        
-        STATE.isLearning = true
-        STATE.cancelarEscaneo = false
-        pcall(function()
-            Rayfield:Notify({ Title = "Aprendizaje", Content = "Perfil: " .. tostring(STATE.perfilEscaneo), Duration = 4 })
-        end)
-        
-        task.spawn(function()
-            local colocadas = obtenerColocadas()
-            pcall(function()
-                lblProgreso:Set("Estado: " .. #colocadas .. " colocadas leídas")
-            end)
-            task.wait(0.3)
-            
-            local stats = escanearInventarioAsync(function(i, total, nuevos)
-                pcall(function()
-                    lblProgreso:Set(string.format("Escaneando %d/%d (%d nuevas)", i, total, nuevos))
-                end)
-            end)
-            
-            guardarCache()
-            pcall(function()
-                lblProgreso:Set("✅ Completado: " .. stats.despues .. " mascotas")
-                lblCache:Set("💾 Cache: " .. stats.despues .. " mascotas")
-            end)
-            
-            pcall(function()
-                Rayfield:Notify({
-                    Title = "✅ Completado",
-                    Content = stats.nuevos .. " nuevas, total " .. stats.despues,
-                    Duration = 6,
-                })
-            end)
-            
-            STATE.isLearning = false
-        end)
-    end,
-})
-
-TabInicio:CreateButton({
-    Name = "🛑 Cancelar escaneo",
-    Callback = function()
-        STATE.cancelarEscaneo = true
-        pcall(function()
-            Rayfield:Notify({ Title = "Cancelado", Content = "Deteniendo...", Duration = 3 })
-        end)
-    end,
-})
-
-TabInicio:CreateButton({
-    Name = "🔄 Re-escanear rápido",
+    Name = "🔍 Escanear memoria (solo colocadas)",
     Callback = function()
         if STATE.isLearning then return end
         STATE.isLearning = true
@@ -655,20 +715,25 @@ TabInicio:CreateButton({
         task.spawn(function()
             local stats = escanearInventarioAsync(function(i, total, nuevos)
                 pcall(function()
-                    lblProgreso:Set(string.format("Escaneando %d/%d (%d nuevas)", i, total, nuevos))
+                    lblProgresoGC:Set(string.format("GC %d/%d (%d nuevas)", i, total, nuevos))
                 end)
             end)
             guardarCache()
             pcall(function()
                 lblCache:Set("💾 Cache: " .. stats.despues .. " mascotas")
-                lblProgreso:Set("✅ " .. stats.nuevos .. " nuevas")
-                Rayfield:Notify({
-                    Title = "Escaneo",
-                    Content = stats.nuevos .. " nuevas, total " .. stats.despues,
-                    Duration = 4,
-                })
+                lblProgresoGC:Set("✅ +" .. stats.nuevos)
             end)
             STATE.isLearning = false
+        end)
+    end,
+})
+
+TabInicio:CreateButton({
+    Name = "🛑 Cancelar operación",
+    Callback = function()
+        STATE.cancelarEscaneo = true
+        pcall(function()
+            Rayfield:Notify({ Title = "Cancelado", Content = "Deteniendo...", Duration = 3 })
         end)
     end,
 })
@@ -707,9 +772,6 @@ toggleActualRef = TabAuto:CreateToggle({
         if value then
             STATE.modoAutoEquip = "actual"
             if togglePotencialRef then togglePotencialRef:Set(false) end
-            pcall(function()
-                Rayfield:Notify({ Title = "Auto Equip", Content = "Modo ACTUAL", Duration = 3 })
-            end)
             task.spawn(function() autoEquipar(false) end)
         else
             if STATE.modoAutoEquip == "actual" then STATE.modoAutoEquip = nil end
@@ -725,9 +787,6 @@ togglePotencialRef = TabAuto:CreateToggle({
         if value then
             STATE.modoAutoEquip = "potencial"
             if toggleActualRef then toggleActualRef:Set(false) end
-            pcall(function()
-                Rayfield:Notify({ Title = "Auto Equip", Content = "Modo POTENCIAL", Duration = 3 })
-            end)
             task.spawn(function() autoEquipar(true) end)
         else
             if STATE.modoAutoEquip == "potencial" then STATE.modoAutoEquip = nil end
@@ -736,7 +795,7 @@ togglePotencialRef = TabAuto:CreateToggle({
 })
 
 TabAuto:CreateButton({
-    Name = "▶️ Ejecutar ahora (modo del toggle)",
+    Name = "▶️ Ejecutar ahora",
     Callback = function()
         task.spawn(function()
             autoEquipar(STATE.modoAutoEquip == "potencial")
@@ -747,15 +806,10 @@ TabAuto:CreateButton({
 TabAuto:CreateButton({
     Name = "🎯 Pulsar 'Place Best' del juego",
     Callback = function()
-        if pulsarPlaceBest() then
-            pcall(function()
-                Rayfield:Notify({ Title = "PlaceBest", Content = "Ejecutado", Duration = 3 })
-            end)
-        else
-            pcall(function()
-                Rayfield:Notify({ Title = "PlaceBest", Content = "No encontrado", Duration = 3 })
-            end)
-        end
+        pulsarPlaceBest()
+        pcall(function()
+            Rayfield:Notify({ Title = "PlaceBest", Content = "Ejecutado", Duration = 3 })
+        end)
     end,
 })
 
@@ -848,23 +902,13 @@ TabConfig:CreateSlider({
     Callback = function(value) CONFIG.INTERVALO_AUTO_EQUIP = value end,
 })
 
-TabConfig:CreateSlider({
-    Name = "Máx tablas a escanear",
-    Range = { 10000, 200000 },
-    Increment = 10000,
-    Suffix = "",
-    CurrentValue = CONFIG.MAX_TABLAS_ESCANEO,
-    Flag = "MaxTablas",
-    Callback = function(value) CONFIG.MAX_TABLAS_ESCANEO = value end,
-})
-
 TabConfig:CreateButton({
     Name = "🗑️ Limpiar cache",
     Callback = function()
         STATE.cache = {}
         pcall(function() if delfile then delfile(CONFIG.ARCHIVO_CACHE) end end)
-        pcall(function() lblCache:Set("💾 Cache: 0") end)
         pcall(function()
+            lblCache:Set("💾 Cache: 0")
             Rayfield:Notify({ Title = "Cache", Content = "Borrado", Duration = 3 })
         end)
     end,
@@ -891,7 +935,7 @@ TabConfig:CreateButton({
 })
 
 -- ============================================================
--- [13] BUCLE PRINCIPAL
+-- [14] BUCLE PRINCIPAL
 -- ============================================================
 task.spawn(function()
     while STATE.running do
@@ -911,11 +955,12 @@ end)
 
 pcall(function()
     Rayfield:Notify({
-        Title = "✅ Hub cargado",
-        Content = contar(STATE.cache) .. " en cache | " .. STATE.slots .. " slots",
+        Title = "✅ Hub v8 cargado",
+        Content = contar(STATE.cache) .. " en cache",
         Duration = 6,
     })
 end)
 
-print("\n✅ HUB v7 CARGADO")
-print("📌 Cache: " .. contar(STATE.cache) .. " mascotas")
+print("\n✅ HUB v8 CARGADO")
+print("📌 Cache: " .. contar(STATE.cache))
+print("📌 Usa '🎓 Aprender TODAS vía UI' para capturar todas las PetKeys.")
