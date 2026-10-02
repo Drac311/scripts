@@ -1,5 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║   RIDE A PET - HUB v13 (GUARDADO CORRECTO)               ║
+-- ║   RIDE A PET - HUB v14                                   ║
+-- ║   Con botones "Once" para ejecutar acciones individuales ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
@@ -23,14 +24,14 @@ local PlacePet = ReplicatedStorage.Remotes.Game.PlacePet
 local PickupPet = ReplicatedStorage.Remotes.Game.PickupPet
 
 -- ============================================================
--- [2] CONFIG
+-- [2] CONFIG Y ESTADO
 -- ============================================================
 local CONFIG = {
     INTERVALO_AUTO_EQUIP = 90,
     ARCHIVO_CACHE = "rideapet_cache.json",
     VELOCIDAD_UI = 0.15,
     VELOCIDAD_LIMPIEZA = 0.08,
-    GUARDAR_CADA = 20,  -- Guardar cache cada N items
+    GUARDAR_CADA = 20,
 }
 
 local STATE = {
@@ -46,7 +47,7 @@ local STATE = {
     ultimaPetKeyDetectada = nil,
     ultimoNombreUI = nil,
     ultimaMutacionUI = nil,
-    ultimoPesoUI = 0,
+    indiceAprendizaje = 0,  -- Dónde quedamos en el aprendizaje
 }
 
 local UUID_PATTERN = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
@@ -89,7 +90,6 @@ end
 
 local function guardarCache()
     pcall(function()
-        -- Limpiar keys sin nombre antes de guardar
         local limpio = {}
         for k, v in pairs(STATE.cache) do
             if v.name and v.mutation then
@@ -101,7 +101,6 @@ local function guardarCache()
                 }
             end
         end
-        
         if writefile then
             writefile(CONFIG.ARCHIVO_CACHE, HttpService:JSONEncode(limpio))
         end
@@ -295,6 +294,7 @@ local function autoEquipar(usarPotencial)
         return
     end
     
+    -- Quitar subóptimas
     for _, c in ipairs(colocadas) do
         if not STATE.running then break end
         local estaEnMejores = false
@@ -308,6 +308,7 @@ local function autoEquipar(usarPotencial)
     end
     task.wait(0.8)
     
+    -- Posición del plot
     local posBase = Vector3.new(0, 0, 0)
     pcall(function()
         local plot = game.Workspace:FindFirstChild("Plots")
@@ -356,16 +357,7 @@ local function instalarHooks()
                 for i, v in ipairs(args) do
                     if type(v) == "string" and v:match(UUID_PATTERN) then
                         if self == PlacePet and i == 1 then
-                            -- ✅ Capturar la key + datos de UI que guardamos antes
                             STATE.ultimaPetKeyDetectada = v
-                            if not STATE.cache[v] or not STATE.cache[v].name then
-                                STATE.cache[v] = {
-                                    name = STATE.ultimoNombreUI or "Desconocido",
-                                    mutation = STATE.ultimaMutacionUI or "-",
-                                    age = 0,
-                                    income = 0,
-                                }
-                            end
                         end
                     end
                 end
@@ -377,36 +369,7 @@ local function instalarHooks()
 end
 
 -- ============================================================
--- [10] OBTENER DATOS DE LA UI DEL ITEM
--- ============================================================
-local function obtenerDatosDeItem(item)
-    local nombre = nil
-    local mutacion = "-"
-    local peso = 0
-    
-    pcall(function()
-        local toolName = item:FindFirstChild("ToolName")
-        if toolName and toolName:IsA("TextLabel") then
-            local texto = toolName.Text
-            -- "Cerberus [21,015,183 KG]"
-            nombre = texto:match("^([^%[]+)")
-            if nombre then
-                nombre = nombre:gsub("^%s+", ""):gsub("%s+$", "")
-            end
-        end
-        
-        local withIcon = item:FindFirstChild("WithIconLabel")
-        if withIcon and withIcon:IsA("TextLabel") then
-            local m = withIcon.Text:match("%[([^%]]+)%]")
-            if m then mutacion = m end
-        end
-    end)
-    
-    return nombre, mutacion, peso
-end
-
--- ============================================================
--- [11] APRENDER VÍA UI (con guardado correcto)
+-- [10] DATOS DE LA UI
 -- ============================================================
 local function obtenerGrid()
     local pg = player:FindFirstChild("PlayerGui")
@@ -421,7 +384,113 @@ local function obtenerGrid()
     return nil
 end
 
-local function aprenderPorUIRapido(onProgress)
+local function obtenerDatosDeItem(item)
+    local nombre = nil
+    local mutacion = "-"
+    
+    pcall(function()
+        local toolName = item:FindFirstChild("ToolName")
+        if toolName and toolName:IsA("TextLabel") then
+            local texto = toolName.Text
+            nombre = texto:match("^([^%[]+)")
+            if nombre then
+                nombre = nombre:gsub("^%s+", ""):gsub("%s+$", "")
+            end
+        end
+        
+        local withIcon = item:FindFirstChild("WithIconLabel")
+        if withIcon and withIcon:IsA("TextLabel") then
+            local m = withIcon.Text:match("%[([^%]]+)%]")
+            if m then mutacion = m end
+        end
+    end)
+    
+    return nombre, mutacion
+end
+
+-- ============================================================
+-- [11] APRENDER 1 ITEM (función base)
+-- ============================================================
+-- Devuelve: exito (bool), mensaje (string)
+local function aprenderUnItem(item)
+    if not item then
+        return false, "Item no válido"
+    end
+    
+    -- Reset flags
+    STATE.ultimaPetKeyDetectada = nil
+    STATE.ultimoNombreUI = nil
+    STATE.ultimaMutacionUI = nil
+    
+    -- PASO 1: Leer datos de la UI
+    local nombre, mutacion = obtenerDatosDeItem(item)
+    STATE.ultimoNombreUI = nombre
+    STATE.ultimaMutacionUI = mutacion
+    
+    -- PASO 2: Click en item
+    pcall(function()
+        if firesignal then
+            firesignal(item.MouseButton1Click)
+        end
+    end)
+    
+    task.wait(CONFIG.VELOCIDAD_UI)
+    
+    -- PASO 3: Click en el suelo
+    pcall(function()
+        if mousemoveabs and mouse1click and workspace.CurrentCamera then
+            local plot = game.Workspace:FindFirstChild("Plots")
+            plot = plot and plot:FindFirstChild("Plot")
+            if plot then
+                local bp = plot:FindFirstChild("Baseplate")
+                if bp and bp:IsA("BasePart") then
+                    local posPlot = bp.Position + Vector3.new(0, 5, 0)
+                    local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(posPlot)
+                    if onScreen then
+                        mousemoveabs(screenPos.X, screenPos.Y)
+                        task.wait(0.02)
+                        mouse1click()
+                    end
+                end
+            end
+        end
+    end)
+    
+    -- PASO 4: Esperar al hook
+    task.wait(CONFIG.VELOCIDAD_UI)
+    
+    local keyCapturada = STATE.ultimaPetKeyDetectada
+    
+    if keyCapturada then
+        -- Guardar con datos de UI
+        local esNueva = not STATE.cache[keyCapturada] or not STATE.cache[keyCapturada].name
+        STATE.cache[keyCapturada] = {
+            name = nombre or "Desconocido",
+            mutation = mutacion or "-",
+            age = STATE.cache[keyCapturada] and STATE.cache[keyCapturada].age or 0,
+            income = STATE.cache[keyCapturada] and STATE.cache[keyCapturada].income or 0,
+        }
+        
+        -- Quitar la mascota
+        pcall(function() PickupPet:FireServer(keyCapturada) end)
+        task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
+        
+        return true, (esNueva and "NUEVA" or "actualizada") .. ": " .. (nombre or "?") .. " " .. (mutacion or "-") .. " [" .. keyCapturada:sub(1,8) .. "]"
+    else
+        -- Fallback: limpiar colocadas por si acaso
+        local colocadas = obtenerColocadas()
+        for _, c in ipairs(colocadas) do
+            pcall(function() PickupPet:FireServer(c.key) end)
+            task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
+        end
+        return false, "No se capturó ninguna key"
+    end
+end
+
+-- ============================================================
+-- [12] APRENDER TODOS VÍA UI
+-- ============================================================
+local function aprenderPorUIRapido(onProgress, limite)
     local grid = obtenerGrid()
     if not grid then
         return {error = "Grid no encontrado. Abre la UI de inventario."}
@@ -434,107 +503,51 @@ local function aprenderPorUIRapido(onProgress)
         end
     end
     
+    -- Aplicar límite (para "once" o parcial)
+    local desde = STATE.indiceAprendizaje + 1
+    local hasta = limite and math.min(desde + limite - 1, #items) or #items
+    
+    if desde > #items then
+        desde = 1
+        STATE.indiceAprendizaje = 0
+        hasta = limite and math.min(limite, #items) or #items
+    end
+    
     local total = #items
     local antes = contar(STATE.cache)
     local capturados = 0
-    local itemsGuardados = 0
     
-    print("\n🎓 APRENDIZAJE v13: " .. total .. " items")
-    print("   Guardado automático cada " .. CONFIG.GUARDAR_CADA .. " items")
-    print("")
+    print("\n🎓 APRENDIZAJE UI: items " .. desde .. " a " .. hasta .. " de " .. total)
     
-    -- Limpiar rancho al inicio
-    print("🧹 Limpiando rancho...")
-    local colocadasIniciales = obtenerColocadas()
-    for _, c in ipairs(colocadasIniciales) do
-        if not STATE.running then break end
-        pcall(function() PickupPet:FireServer(c.key) end)
-        task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
-    end
-    task.wait(0.5)
-    
-    -- ══════════════════════════════════════════════════════════
-    -- LOOP PRINCIPAL
-    -- ══════════════════════════════════════════════════════════
-    for idx, item in ipairs(items) do
-        if not STATE.running or STATE.cancelarEscaneo then break end
-        
-        -- Reset flags
-        STATE.ultimaPetKeyDetectada = nil
-        STATE.ultimoNombreUI = nil
-        STATE.ultimaMutacionUI = nil
-        
-        -- ⭐ PASO 1: LEER DATOS DE LA UI ANTES DEL CLICK
-        local nombre, mutacion, peso = obtenerDatosDeItem(item)
-        STATE.ultimoNombreUI = nombre
-        STATE.ultimaMutacionUI = mutacion
-        
-        -- PASO 2: Click en item (mascota → mano)
-        pcall(function()
-            if firesignal then
-                firesignal(item.MouseButton1Click)
-            end
-        end)
-        
-        task.wait(CONFIG.VELOCIDAD_UI)
-        
-        -- PASO 3: Click en el suelo (soltar mascota)
-        pcall(function()
-            if mousemoveabs and mouse1click and workspace.CurrentCamera then
-                local plot = game.Workspace:FindFirstChild("Plots")
-                plot = plot and plot:FindFirstChild("Plot")
-                if plot then
-                    local bp = plot:FindFirstChild("Baseplate")
-                    if bp and bp:IsA("BasePart") then
-                        local posPlot = bp.Position + Vector3.new(0, 5, 0)
-                        local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(posPlot)
-                        if onScreen then
-                            mousemoveabs(screenPos.X, screenPos.Y)
-                            task.wait(0.02)
-                            mouse1click()
-                        end
-                    end
-                end
-            end
-        end)
-        
-        -- PASO 4: Esperar a que el hook capture
-        task.wait(CONFIG.VELOCIDAD_UI)
-        
-        local keyCapturada = STATE.ultimaPetKeyDetectada
-        
-        if keyCapturada then
-            -- ⭐ Guardar con datos correctos (ya está hecho en el hook)
-            if not STATE.cache[keyCapturada] or not STATE.cache[keyCapturada].name 
-               or STATE.cache[keyCapturada].name == "Desconocido" then
-                STATE.cache[keyCapturada] = {
-                    name = nombre or "Desconocido",
-                    mutation = mutacion or "-",
-                    age = 0,
-                    income = 0,
-                }
-                capturados = capturados + 1
-            end
-            
-            -- Quitar solo esa mascota
-            pcall(function() PickupPet:FireServer(keyCapturada) end)
-            task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
-        else
-            -- Fallback: si el hook no capturó, intentar quitar por si acaso
-            pcall(function()
-                local colocadas = obtenerColocadas()
-                for _, c in ipairs(colocadas) do
-                    PickupPet:FireServer(c.key)
-                end
-            end)
+    -- Si empieza desde 1, limpiar rancho primero
+    if desde == 1 then
+        print("🧹 Limpiando rancho...")
+        local colocadasIniciales = obtenerColocadas()
+        for _, c in ipairs(colocadasIniciales) do
+            if not STATE.running then break end
+            pcall(function() PickupPet:FireServer(c.key) end)
             task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
         end
+        task.wait(0.5)
+    end
+    
+    for idx = desde, hasta do
+        if not STATE.running or STATE.cancelarEscaneo then break end
         
-        -- ⭐ GUARDADO INCREMENTAL cada N items
+        local item = items[idx]
+        if item then
+            local ok, msg = aprenderUnItem(item)
+            if ok then
+                capturados = capturados + 1
+            end
+        end
+        
+        STATE.indiceAprendizaje = idx
+        
+        -- Guardado incremental
         if idx % CONFIG.GUARDAR_CADA == 0 then
             guardarCache()
-            itemsGuardados = itemsGuardados + 1
-            print("   💾 Guardado automático (" .. idx .. "/" .. total .. ") | Cache: " .. contar(STATE.cache))
+            print("   💾 Guardado auto (" .. idx .. "/" .. total .. ") | Cache: " .. contar(STATE.cache))
         end
         
         if onProgress then
@@ -542,11 +555,8 @@ local function aprenderPorUIRapido(onProgress)
         end
     end
     
-    -- ══════════════════════════════════════════════════════════
-    -- ENRIQUECIMIENTO FINAL (una pasada)
-    -- ══════════════════════════════════════════════════════════
-    print("\n📝 Enriqueciendo cache con age/income...")
-    
+    -- Enriquecimiento final
+    print("\n📝 Enriqueciendo age/income...")
     pcall(function()
         local count = 0
         for _, obj in ipairs(getgc(true)) do
@@ -570,17 +580,15 @@ local function aprenderPorUIRapido(onProgress)
         end
     end)
     
-    -- ⭐ GUARDADO FINAL
     guardarCache()
     
     local finalCache = contar(STATE.cache)
+    print("\n✅ Completado. Capturados: " .. capturados .. " | Cache: " .. finalCache)
     
-    print("\n╔══════════════════════════════════════════╗")
-    print("║  ✅ APRENDIZAJE COMPLETADO               ║")
-    print("╚══════════════════════════════════════════╝")
-    print("   Capturadas en esta sesión: " .. capturados)
-    print("   Cache final: " .. finalCache)
-    print("   Guardado en: " .. CONFIG.ARCHIVO_CACHE)
+    -- Si terminamos todos, resetear índice
+    if hasta >= total then
+        STATE.indiceAprendizaje = 0
+    end
     
     return {
         antes = antes,
@@ -590,11 +598,11 @@ local function aprenderPorUIRapido(onProgress)
 end
 
 -- ============================================================
--- [12] INICIALIZACIÓN
+-- [13] INICIALIZACIÓN
 -- ============================================================
 cargarCache()
 print("╔══════════════════════════════════════════╗")
-print("║  RIDE A PET HUB v13                      ║")
+print("║  RIDE A PET HUB v14 (con ONCE)           ║")
 print("╚══════════════════════════════════════════╝")
 print("📂 Cache inicial: " .. contar(STATE.cache))
 
@@ -613,17 +621,20 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- [13] GUI
+-- [14] GUI
 -- ============================================================
 local Window = Rayfield:CreateWindow({
     Name = "Ride a Pet - Auto Equip Hub",
     LoadingTitle = "Cargando...",
-    LoadingSubtitle = "v13",
+    LoadingSubtitle = "v14 - ONCE edition",
     ConfigurationSaving = { Enabled = false },
     Discord = { Enabled = false },
     KeySystem = false,
 })
 
+-- ─────────────────────────────────────────────────────────
+-- PESTAÑA: INICIO
+-- ─────────────────────────────────────────────────────────
 local TabInicio = Window:CreateTab("Inicio", 4483362458)
 TabInicio:CreateSection("Estado")
 
@@ -642,12 +653,119 @@ task.spawn(function()
     end
 end)
 
-TabInicio:CreateSection("Aprendizaje")
+TabInicio:CreateSection("Acciones rápidas (ONCE)")
+
+TabInicio:CreateButton({
+    Name = "🎯 Aprender 1 item (once)",
+    Callback = function()
+        if STATE.isLearning then return end
+        STATE.isLearning = true
+        
+        task.spawn(function()
+            local grid = obtenerGrid()
+            if not grid then
+                Rayfield:Notify({ Title = "Error", Content = "Abre el inventario primero", Duration = 4 })
+                STATE.isLearning = false
+                return
+            end
+            
+            local items = {}
+            for _, item in ipairs(grid:GetChildren()) do
+                if item:IsA("TextButton") then table.insert(items, item) end
+            end
+            
+            local idx = STATE.indiceAprendizaje + 1
+            if idx > #items then idx = 1 STATE.indiceAprendizaje = 0 end
+            
+            local item = items[idx]
+            if item then
+                local ok, msg = aprenderUnItem(item)
+                STATE.indiceAprendizaje = idx
+                guardarCache()
+                lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
+                
+                Rayfield:Notify({
+                    Title = ok and "✅ Capturada" or "❌ Falló",
+                    Content = "Item " .. idx .. "/" .. #items .. " → " .. msg,
+                    Duration = 5,
+                })
+            end
+            
+            STATE.isLearning = false
+        end)
+    end,
+})
+
+TabInicio:CreateButton({
+    Name = "🔍 Leer colocadas (once)",
+    Callback = function()
+        task.spawn(function()
+            local colocadas = obtenerColocadas()
+            guardarCache()
+            lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
+            Rayfield:Notify({
+                Title = "Colocadas",
+                Content = #colocadas .. " leídas",
+                Duration = 3,
+            })
+        end)
+    end,
+})
+
+TabInicio:CreateButton({
+    Name = "🎯 Pulsar 'Place Best' del juego (once)",
+    Callback = function()
+        local ok = pulsarPlaceBest()
+        Rayfield:Notify({
+            Title = ok and "✅ Ejecutado" or "❌ No encontrado",
+            Content = ok and "PlaceBest pulsado" or "Botón no disponible",
+            Duration = 3,
+        })
+    end,
+})
+
+TabInicio:CreateButton({
+    Name = "💾 Guardar cache (once)",
+    Callback = function()
+        guardarCache()
+        Rayfield:Notify({ Title = "Guardado", Content = contar(STATE.cache) .. " mascotas", Duration = 3 })
+    end,
+})
+
+TabInicio:CreateSection("Aprendizaje completo")
 
 local lblProgresoUI = TabInicio:CreateLabel("Estado UI: listo")
 
 TabInicio:CreateButton({
     Name = "🎓 Aprender TODAS vía UI (~2min)",
+    Callback = function()
+        if STATE.isLearning then return end
+        STATE.isLearning = true
+        STATE.cancelarEscaneo = false
+        STATE.indiceAprendizaje = 0  -- Reiniciar desde el principio
+        
+        task.spawn(function()
+            local stats = aprenderPorUIRapido(function(i, total, capturados)
+                pcall(function()
+                    lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
+                end)
+            end, nil)
+            
+            pcall(function()
+                if stats and stats.error then
+                    lblProgresoUI:Set("❌ " .. stats.error)
+                else
+                    lblProgresoUI:Set("✅ +" .. (stats.nuevos or 0) .. " capturadas")
+                    lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
+                end
+            end)
+            STATE.isLearning = false
+        end)
+    end,
+})
+
+TabInicio:CreateButton({
+    Name = "▶️ Continuar desde donde quedó",
     Callback = function()
         if STATE.isLearning then return end
         STATE.isLearning = true
@@ -658,21 +776,47 @@ TabInicio:CreateButton({
                 pcall(function()
                     lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
                 end)
-            end)
+            end, nil)
             
             pcall(function()
-                if stats and stats.error then
-                    lblProgresoUI:Set("❌ " .. stats.error)
-                else
-                    lblProgresoUI:Set("✅ +" .. (stats.nuevos or 0) .. " capturadas")
-                    lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
-                    Rayfield:Notify({
-                        Title = "✅ Aprendizaje UI",
-                        Content = (stats.nuevos or 0) .. " nuevas, total " .. (stats.despues or 0),
-                        Duration = 6,
-                    })
-                end
+                lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
             end)
+            STATE.isLearning = false
+        end)
+    end,
+})
+
+TabInicio:CreateButton({
+    Name = "🎓 Aprender solo 5 items (once)",
+    Callback = function()
+        if STATE.isLearning then return end
+        STATE.isLearning = true
+        
+        task.spawn(function()
+            local stats = aprenderPorUIRapido(function(i, total, capturados)
+                pcall(function()
+                    lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
+                end)
+            end, 5)
+            lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
+            STATE.isLearning = false
+        end)
+    end,
+})
+
+TabInicio:CreateButton({
+    Name = "🎓 Aprender solo 20 items (once)",
+    Callback = function()
+        if STATE.isLearning then return end
+        STATE.isLearning = true
+        
+        task.spawn(function()
+            local stats = aprenderPorUIRapido(function(i, total, capturados)
+                pcall(function()
+                    lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
+                end)
+            end, 20)
+            lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
             STATE.isLearning = false
         end)
     end,
@@ -685,23 +829,17 @@ TabInicio:CreateButton({
     end,
 })
 
-TabInicio:CreateButton({
-    Name = "💾 Forzar guardado ahora",
-    Callback = function()
-        guardarCache()
-        Rayfield:Notify({ Title = "Guardado", Content = contar(STATE.cache) .. " mascotas", Duration = 3 })
-    end,
-})
-
--- AUTO EQUIP
+-- ─────────────────────────────────────────────────────────
+-- PESTAÑA: AUTO EQUIP
+-- ─────────────────────────────────────────────────────────
 local TabAuto = Window:CreateTab("Auto Equip", 4483362458)
-TabAuto:CreateSection("Modo de Auto-Equipado")
+TabAuto:CreateSection("Modo continuo (loop)")
 
 local toggleActualRef = nil
 local togglePotencialRef = nil
 
 toggleActualRef = TabAuto:CreateToggle({
-    Name = "⚡ Auto Equip SIN Potencial",
+    Name = "⚡ Auto Equip SIN Potencial (loop)",
     CurrentValue = false,
     Flag = "AutoActual",
     Callback = function(value)
@@ -716,7 +854,7 @@ toggleActualRef = TabAuto:CreateToggle({
 })
 
 togglePotencialRef = TabAuto:CreateToggle({
-    Name = "🚀 Auto Equip CON Potencial (Age 100)",
+    Name = "🚀 Auto Equip CON Potencial (loop)",
     CurrentValue = false,
     Flag = "AutoPotencial",
     Callback = function(value)
@@ -730,21 +868,47 @@ togglePotencialRef = TabAuto:CreateToggle({
     end,
 })
 
+TabAuto:CreateSection("Ejecutar UNA VEZ")
+
 TabAuto:CreateButton({
-    Name = "▶️ Ejecutar ahora",
+    Name = "▶️ Auto Equip UNA VEZ (SIN Potencial)",
     Callback = function()
-        task.spawn(function() autoEquipar(STATE.modoAutoEquip == "potencial") end)
+        task.spawn(function()
+            autoEquipar(false)
+            Rayfield:Notify({ Title = "Auto Equip", Content = "Ejecutado (actual)", Duration = 3 })
+        end)
     end,
 })
 
 TabAuto:CreateButton({
-    Name = "🎯 Pulsar 'Place Best' del juego",
+    Name = "🚀 Auto Equip UNA VEZ (CON Potencial)",
     Callback = function()
-        pulsarPlaceBest()
+        task.spawn(function()
+            autoEquipar(true)
+            Rayfield:Notify({ Title = "Auto Equip", Content = "Ejecutado (potencial)", Duration = 3 })
+        end)
     end,
 })
 
--- RANKING
+TabAuto:CreateSection("Control manual")
+
+TabAuto:CreateButton({
+    Name = "🔻 Quitar TODAS las colocadas (once)",
+    Callback = function()
+        task.spawn(function()
+            local colocadas = obtenerColocadas()
+            for _, c in ipairs(colocadas) do
+                pcall(function() PickupPet:FireServer(c.key) end)
+                task.wait(0.25)
+            end
+            Rayfield:Notify({ Title = "Quitadas", Content = #colocadas .. " mascotas", Duration = 3 })
+        end)
+    end,
+})
+
+-- ─────────────────────────────────────────────────────────
+-- PESTAÑA: RANKING
+-- ─────────────────────────────────────────────────────────
 local TabRanking = Window:CreateTab("Ranking", 4483362458)
 
 TabRanking:CreateButton({
@@ -793,11 +957,27 @@ TabRanking:CreateButton({
     end,
 })
 
--- CONFIG
+TabRanking:CreateButton({
+    Name = "📋 Mostrar colocadas (once)",
+    Callback = function()
+        task.spawn(function()
+            local colocadas = obtenerColocadas()
+            print("\n✅ COLOCADAS (" .. #colocadas .. "/" .. STATE.slots .. "):")
+            for i, p in ipairs(colocadas) do
+                print(string.format("%2d. %-14s %-10s Age %3d | %s",
+                    i, p.name, p.mutation, p.age, formatearDinero(p.income)))
+            end
+        end)
+    end,
+})
+
+-- ─────────────────────────────────────────────────────────
+-- PESTAÑA: CONFIG
+-- ─────────────────────────────────────────────────────────
 local TabConfig = Window:CreateTab("Config", 4483362458)
 
 TabConfig:CreateSlider({
-    Name = "Intervalo auto-equip (s)",
+    Name = "Intervalo auto-equip loop (s)",
     Range = { 30, 600 },
     Increment = 10,
     Suffix = "s",
@@ -830,15 +1010,24 @@ TabConfig:CreateButton({
     Name = "🗑️ Limpiar cache",
     Callback = function()
         STATE.cache = {}
+        STATE.indiceAprendizaje = 0
         pcall(function() if delfile then delfile(CONFIG.ARCHIVO_CACHE) end end)
         pcall(function() lblCache:Set("💾 Cache: 0") end)
     end,
 })
 
 TabConfig:CreateButton({
-    Name = "💾 Guardar cache",
+    Name = "💾 Guardar cache (once)",
     Callback = function()
         guardarCache()
+    end,
+})
+
+TabConfig:CreateButton({
+    Name = "🔄 Resetear índice de aprendizaje",
+    Callback = function()
+        STATE.indiceAprendizaje = 0
+        Rayfield:Notify({ Title = "Reset", Content = "Índice a 0", Duration = 3 })
     end,
 })
 
@@ -850,7 +1039,7 @@ TabConfig:CreateButton({
 })
 
 -- ============================================================
--- [14] BUCLE PRINCIPAL
+-- [15] BUCLE PRINCIPAL DEL LOOP AUTO-EQUIP
 -- ============================================================
 task.spawn(function()
     while STATE.running do
@@ -870,11 +1059,12 @@ end)
 
 pcall(function()
     Rayfield:Notify({
-        Title = "✅ Hub v13 cargado",
-        Content = contar(STATE.cache) .. " en cache",
+        Title = "✅ Hub v14 cargado",
+        Content = contar(STATE.cache) .. " en cache | Modo ONCE activo",
         Duration = 6,
     })
 end)
 
-print("\n✅ HUB v13 CARGADO")
+print("\n✅ HUB v14 CARGADO")
 print("📌 Cache: " .. contar(STATE.cache))
+print("📌 Botones 'once' disponibles en todas las pestañas")
