@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║   RIDE A PET - HUB COMPLETO v5 (ESCANEO CHUNKED)         ║
+-- ║   RIDE A PET - HUB COMPLETO v6 (FIXED)                   ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
@@ -28,10 +28,8 @@ local PickupPet = ReplicatedStorage.Remotes.Game.PickupPet
 local CONFIG = {
     INTERVALO_AUTO_EQUIP = 90,
     ARCHIVO_CACHE = "rideapet_cache.json",
-    DEBUG = false,
 }
 
--- Perfiles de velocidad (chunk size, delay entre chunks)
 local PERFILES = {
     ["⚡ Rápido (con lag, 5-10s)"]    = { chunk = 2000, delay = 0.005 },
     ["🚶 Normal (lag leve, 20-30s)"] = { chunk = 500,  delay = 0.05 },
@@ -63,6 +61,7 @@ local function contar(t)
 end
 
 local function formatearDinero(n)
+    if type(n) ~= "number" then return "0" end
     if n >= 1e15 then return string.format("%.2fQ", n/1e15)
     elseif n >= 1e12 then return string.format("%.2fT", n/1e12)
     elseif n >= 1e9 then return string.format("%.2fB", n/1e9)
@@ -97,14 +96,17 @@ local function guardarCache()
 end
 
 -- ============================================================
--- [5] DETECCIÓN DE REBIRTH
+-- [5] DETECCIÓN DE REBIRTH (CORREGIDA)
 -- ============================================================
 local function detectarRebirthAsync()
     local rebirth = 0
     local contador = 0
+    local encontrado = false
     
     pcall(function()
         for _, obj in ipairs(getgc(true)) do
+            if encontrado then break end
+            
             contador = contador + 1
             if contador % 500 == 0 then task.wait() end
             if contador > 30000 then break end
@@ -112,18 +114,25 @@ local function detectarRebirthAsync()
             if type(obj) == "table" then
                 pcall(function()
                     for _, pet in pairs(obj) do
+                        if encontrado then return end
                         if type(pet) == "table" then
                             local pk = pet.PetKey
                             local inc = pet.Income
+                            
                             if type(pk) == "string" and type(inc) == "number" then
                                 local mut = pet.Mutation
                                 local age = pet.CurrentAge
                                 local base = pet.BaseIncome
-                                if mut and age and base then
+                                
+                                if mut and age and base and base > 0 then
                                     local mutF = MutsMod.CombinedFactor(mut) or 1
                                     local ageF = AgingMod.MultiplierFor(age) or 1
-                                    rebirth = math.floor(inc / (base * mutF * ageF) - 1 + 0.5)
-                                    error("done")
+                                    if mutF > 0 and ageF > 0 then
+                                        rebirth = math.floor(inc / (base * mutF * ageF) - 1 + 0.5)
+                                        if rebirth < 0 then rebirth = 0 end
+                                        encontrado = true
+                                        return
+                                    end
                                 end
                             end
                         end
@@ -132,18 +141,18 @@ local function detectarRebirthAsync()
             end
         end
     end)
+    
     return rebirth
 end
 
 -- ============================================================
--- [6] ESCANEO CHUNKED (procesa por trozos pequeños)
+-- [6] ESCANEO CHUNKED
 -- ============================================================
 local function escanearInventarioAsync(onProgress)
     local antes = contar(STATE.cache)
     local nuevos = 0
     local procesadas = 0
     
-    -- Obtener lista del GC UNA sola vez
     local listaGC = getgc(true)
     local total = #listaGC
     
@@ -156,7 +165,7 @@ local function escanearInventarioAsync(onProgress)
     
     while i <= total do
         if STATE.cancelarEscaneo then
-            print("   🛑 Escaneo cancelado por usuario")
+            print("   🛑 Escaneo cancelado")
             break
         end
         
@@ -181,7 +190,6 @@ local function escanearInventarioAsync(onProgress)
                        and type(mut) == "string"
                        and type(age) == "number"
                        and type(inc) == "number" then
-                        
                         if k:match(UUID_PATTERN) then
                             if not STATE.cache[k] then
                                 STATE.cache[k] = {
@@ -202,8 +210,6 @@ local function escanearInventarioAsync(onProgress)
         end
         
         i = fin + 1
-        
-        -- Yield LARGO entre chunks: el juego respira
         task.wait(DELAY)
         
         if onProgress then
@@ -267,7 +273,6 @@ local function obtenerColocadas()
                             income = inc,
                         }
                         table.insert(lista, info)
-                        
                         if not STATE.cache[key] then
                             STATE.cache[key] = {
                                 name = info.name,
@@ -313,7 +318,7 @@ local function calcularIncomePotencial(nombre, mutacion)
 end
 
 -- ============================================================
--- [9] PLACE BEST + AUTO-EQUIP
+-- [9] AUTO-EQUIP
 -- ============================================================
 local function obtenerBotonPlaceBest()
     local pg = player:FindFirstChild("PlayerGui")
@@ -340,8 +345,8 @@ local function autoEquipar(usarPotencial)
     if STATE.isAutoEquiping or not STATE.running then return end
     STATE.isAutoEquiping = true
     
-    local modo = usarPotencial and "POTENCIAL FUTURO" or "ACTUAL"
-    print("\n🔄 [" .. os.date("%H:%M:%S") .. "] Auto-equipando modo: " .. modo)
+    local modo = usarPotencial and "POTENCIAL" or "ACTUAL"
+    print("\n🔄 [" .. os.date("%H:%M:%S") .. "] Auto-equipando (" .. modo .. ")")
     
     local colocadas = obtenerColocadas()
     local colocadasKeys = {}
@@ -372,7 +377,7 @@ local function autoEquipar(usarPotencial)
     print("   Keys: " .. contar(STATE.cache) .. " | Colocadas: " .. #colocadas .. " | Slots: " .. STATE.slots)
     
     if #mejoresN == 0 then
-        print("   ⚠️ Sin keys en cache")
+        print("   ⚠️ Sin keys")
         STATE.isAutoEquiping = false
         return
     end
@@ -383,12 +388,11 @@ local function autoEquipar(usarPotencial)
     end
     
     if colocadasEnMejores == #mejoresN and #colocadas == #mejoresN then
-        print("   ✅ Ya están las mejores colocadas")
+        print("   ✅ Ya están las mejores")
         STATE.isAutoEquiping = false
         return
     end
     
-    -- Quitar subóptimas
     local quitadas = 0
     for _, c in ipairs(colocadas) do
         if not STATE.running then break end
@@ -404,7 +408,6 @@ local function autoEquipar(usarPotencial)
     end
     if quitadas > 0 then print("   🔻 Quitadas " .. quitadas) task.wait(1) end
     
-    -- Colocar mejores
     local posBase = Vector3.new(0, 0, 0)
     pcall(function()
         local plot = game.Workspace:FindFirstChild("Plots")
@@ -491,15 +494,39 @@ end
 -- ============================================================
 cargarCache()
 print("╔══════════════════════════════════════════╗")
-print("║  RIDE A PET HUB v5 - INICIANDO           ║")
+print("║  RIDE A PET HUB v6                       ║")
 print("╚══════════════════════════════════════════╝")
 print("📂 Cache inicial: " .. contar(STATE.cache))
 
 instalarHooks()
 print("🎣 Hooks instalados")
 
+-- Detectar rebirth (en background, con más tiempo)
 task.spawn(function()
     print("🔍 Detectando rebirth...")
+    -- Primero leer colocadas (rápido, encuentra el save)
+    local colocadas = obtenerColocadas()
+    if #colocadas > 0 then
+        -- Con las colocadas ya podemos calcular rebirth
+        for _, c in ipairs(colocadas) do
+            local pData = PetsMod[c.name]
+            if pData and pData.Income and pData.Income > 0 then
+                local mutF = MutsMod.CombinedFactor(c.mutation) or 1
+                local ageF = AgingMod.MultiplierFor(c.age) or 1
+                if mutF > 0 and ageF > 0 then
+                    local r = math.floor(c.income / (pData.Income * mutF * ageF) - 1 + 0.5)
+                    if r >= 0 then
+                        STATE.rebirth = r
+                        STATE.rebirthMult = r + 1
+                        STATE.slots = 5 + r
+                        print("📊 Rebirth: " .. r .. " | Mult: x" .. (r+1) .. " | Slots: " .. (5+r))
+                        return
+                    end
+                end
+            end
+        end
+    end
+    -- Fallback: escaneo profundo
     STATE.rebirth = detectarRebirthAsync()
     STATE.rebirthMult = STATE.rebirth + 1
     STATE.slots = 5 + STATE.rebirth
@@ -507,13 +534,13 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- [12] CREAR GUI
+-- [12] GUI
 -- ============================================================
 local Window = Rayfield:CreateWindow({
     Name = "Ride a Pet - Auto Equip Hub",
     LoadingTitle = "Cargando Hub...",
-    LoadingSubtitle = "v5 - Sin lag",
-    ConfigurationSaving = { Enabled = true, FileName = "RideAPetHub" },
+    LoadingSubtitle = "v6",
+    ConfigurationSaving = { Enabled = false },
     Discord = { Enabled = false },
     KeySystem = false,
 })
@@ -532,15 +559,14 @@ task.spawn(function()
     while STATE.running do
         task.wait(3)
         pcall(function()
-            lblRebirth:Set("📊 Rebirth: " .. STATE.rebirth)
-            lblSlots:Set("🐾 Slots: " .. STATE.slots)
+            lblRebirth:Set("📊 Rebirth: " .. tostring(STATE.rebirth))
+            lblSlots:Set("🐾 Slots: " .. tostring(STATE.slots))
             lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
         end)
     end
 end)
 
 TabInicio:CreateSection("Velocidad del escaneo")
-TabInicio:CreateLabel("Más rápido = más lag. Empieza con Seguro.")
 
 TabInicio:CreateDropdown({
     Name = "Perfil de escaneo",
@@ -549,11 +575,20 @@ TabInicio:CreateDropdown({
         "🚶 Normal (lag leve, 20-30s)",
         "🐢 Seguro (sin lag, 1-2min)",
     },
-    CurrentOption = { "🚶 Normal (lag leve, 20-30s)" },
+    CurrentOption = "🚶 Normal (lag leve, 20-30s)",
     Flag = "PerfilEscaneo",
     Callback = function(option)
-        STATE.perfilEscaneo = option
-        Rayfield:Notify({ Title = "Perfil", Content = option, Duration = 3 })
+        -- option puede ser string o tabla en Rayfield
+        local valor = option
+        if type(option) == "table" then
+            valor = option[1] or option[#option]
+        end
+        if type(valor) == "string" and PERFILES[valor] then
+            STATE.perfilEscaneo = valor
+            pcall(function()
+                Rayfield:Notify({ Title = "Perfil", Content = valor, Duration = 3 })
+            end)
+        end
     end,
 })
 
@@ -565,13 +600,17 @@ TabInicio:CreateButton({
     Name = "🚀 Aprender TODAS las mascotas",
     Callback = function()
         if STATE.isLearning then
-            Rayfield:Notify({ Title = "En curso", Content = "Ya escaneando", Duration = 3 })
+            pcall(function()
+                Rayfield:Notify({ Title = "En curso", Content = "Ya escaneando", Duration = 3 })
+            end)
             return
         end
         
         STATE.isLearning = true
         STATE.cancelarEscaneo = false
-        Rayfield:Notify({ Title = "Aprendizaje", Content = "Perfil: " .. STATE.perfilEscaneo, Duration = 4 })
+        pcall(function()
+            Rayfield:Notify({ Title = "Aprendizaje", Content = "Perfil: " .. tostring(STATE.perfilEscaneo), Duration = 4 })
+        end)
         
         task.spawn(function()
             local colocadas = obtenerColocadas()
@@ -592,11 +631,13 @@ TabInicio:CreateButton({
                 lblCache:Set("💾 Cache: " .. stats.despues .. " mascotas")
             end)
             
-            Rayfield:Notify({
-                Title = "✅ Completado",
-                Content = stats.nuevos .. " nuevas, total " .. stats.despues,
-                Duration = 6,
-            })
+            pcall(function()
+                Rayfield:Notify({
+                    Title = "✅ Completado",
+                    Content = stats.nuevos .. " nuevas, total " .. stats.despues,
+                    Duration = 6,
+                })
+            end)
             
             STATE.isLearning = false
         end)
@@ -604,20 +645,19 @@ TabInicio:CreateButton({
 })
 
 TabInicio:CreateButton({
-    Name = "🛑 Cancelar escaneo en curso",
+    Name = "🛑 Cancelar escaneo",
     Callback = function()
         STATE.cancelarEscaneo = true
-        Rayfield:Notify({ Title = "Cancelado", Content = "Escaneo detenido", Duration = 3 })
+        pcall(function()
+            Rayfield:Notify({ Title = "Cancelado", Content = "Deteniendo...", Duration = 3 })
+        end)
     end,
 })
 
 TabInicio:CreateButton({
     Name = "🔄 Re-escanear rápido",
     Callback = function()
-        if STATE.isLearning then
-            Rayfield:Notify({ Title = "En curso", Content = "Ya escaneando", Duration = 3 })
-            return
-        end
+        if STATE.isLearning then return end
         STATE.isLearning = true
         STATE.cancelarEscaneo = false
         
@@ -631,13 +671,12 @@ TabInicio:CreateButton({
             pcall(function()
                 lblCache:Set("💾 Cache: " .. stats.despues .. " mascotas")
                 lblProgreso:Set("✅ " .. stats.nuevos .. " nuevas")
+                Rayfield:Notify({
+                    Title = "Escaneo",
+                    Content = stats.nuevos .. " nuevas, total " .. stats.despues,
+                    Duration = 4,
+                })
             end)
-            
-            Rayfield:Notify({
-                Title = "Escaneo",
-                Content = stats.nuevos .. " nuevas, total " .. stats.despues,
-                Duration = 4,
-            })
             STATE.isLearning = false
         end)
     end,
@@ -650,12 +689,12 @@ TabInicio:CreateButton({
             local colocadas = obtenerColocadas()
             pcall(function()
                 lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
+                Rayfield:Notify({
+                    Title = "Colocadas",
+                    Content = #colocadas .. " leídas",
+                    Duration = 3,
+                })
             end)
-            Rayfield:Notify({
-                Title = "Colocadas",
-                Content = #colocadas .. " leídas",
-                Duration = 3,
-            })
         end)
     end,
 })
@@ -677,7 +716,9 @@ toggleActualRef = TabAuto:CreateToggle({
         if value then
             STATE.modoAutoEquip = "actual"
             if togglePotencialRef then togglePotencialRef:Set(false) end
-            Rayfield:Notify({ Title = "Auto Equip", Content = "Modo ACTUAL", Duration = 3 })
+            pcall(function()
+                Rayfield:Notify({ Title = "Auto Equip", Content = "Modo ACTUAL", Duration = 3 })
+            end)
             task.spawn(function() autoEquipar(false) end)
         else
             if STATE.modoAutoEquip == "actual" then STATE.modoAutoEquip = nil end
@@ -693,15 +734,15 @@ togglePotencialRef = TabAuto:CreateToggle({
         if value then
             STATE.modoAutoEquip = "potencial"
             if toggleActualRef then toggleActualRef:Set(false) end
-            Rayfield:Notify({ Title = "Auto Equip", Content = "Modo POTENCIAL", Duration = 3 })
+            pcall(function()
+                Rayfield:Notify({ Title = "Auto Equip", Content = "Modo POTENCIAL", Duration = 3 })
+            end)
             task.spawn(function() autoEquipar(true) end)
         else
             if STATE.modoAutoEquip == "potencial" then STATE.modoAutoEquip = nil end
         end
     end,
 })
-
-TabAuto:CreateSection("Controles Manuales")
 
 TabAuto:CreateButton({
     Name = "▶️ Ejecutar ahora (modo del toggle)",
@@ -716,9 +757,13 @@ TabAuto:CreateButton({
     Name = "🎯 Pulsar 'Place Best' del juego",
     Callback = function()
         if pulsarPlaceBest() then
-            Rayfield:Notify({ Title = "PlaceBest", Content = "Ejecutado", Duration = 3 })
+            pcall(function()
+                Rayfield:Notify({ Title = "PlaceBest", Content = "Ejecutado", Duration = 3 })
+            end)
         else
-            Rayfield:Notify({ Title = "PlaceBest", Content = "No encontrado", Duration = 3 })
+            pcall(function()
+                Rayfield:Notify({ Title = "PlaceBest", Content = "No encontrado", Duration = 3 })
+            end)
         end
     end,
 })
@@ -748,7 +793,9 @@ TabRanking:CreateButton({
             print(string.format("%2d. %-14s %-10s Age %3d | %s",
                 i, p.name, p.mutation, p.age, formatearDinero(p.valor)))
         end
-        Rayfield:Notify({ Title = "Ranking", Content = "Revisa la consola", Duration = 3 })
+        pcall(function()
+            Rayfield:Notify({ Title = "Ranking", Content = "Consola", Duration = 3 })
+        end)
     end,
 })
 
@@ -772,7 +819,9 @@ TabRanking:CreateButton({
             print(string.format("%2d. %-14s %-10s Age %3d | %s",
                 i, p.name, p.mutation, p.age, formatearDinero(p.valor)))
         end
-        Rayfield:Notify({ Title = "Ranking", Content = "Revisa la consola", Duration = 3 })
+        pcall(function()
+            Rayfield:Notify({ Title = "Ranking", Content = "Consola", Duration = 3 })
+        end)
     end,
 })
 
@@ -786,7 +835,9 @@ TabRanking:CreateButton({
                 print(string.format("%2d. %-14s %-10s Age %3d | %s",
                     i, p.name, p.mutation, p.age, formatearDinero(p.income)))
             end
-            Rayfield:Notify({ Title = "Colocadas", Content = #colocadas, Duration = 3 })
+            pcall(function()
+                Rayfield:Notify({ Title = "Colocadas", Content = #colocadas, Duration = 3 })
+            end)
         end)
     end,
 })
@@ -812,15 +863,19 @@ TabConfig:CreateButton({
         STATE.cache = {}
         pcall(function() if delfile then delfile(CONFIG.ARCHIVO_CACHE) end end)
         pcall(function() lblCache:Set("💾 Cache: 0") end)
-        Rayfield:Notify({ Title = "Cache", Content = "Borrado", Duration = 3 })
+        pcall(function()
+            Rayfield:Notify({ Title = "Cache", Content = "Borrado", Duration = 3 })
+        end)
     end,
 })
 
 TabConfig:CreateButton({
-    Name = "💾 Guardar cache ahora",
+    Name = "💾 Guardar cache",
     Callback = function()
         guardarCache()
-        Rayfield:Notify({ Title = "Cache", Content = "Guardado", Duration = 3 })
+        pcall(function()
+            Rayfield:Notify({ Title = "Cache", Content = "Guardado", Duration = 3 })
+        end)
     end,
 })
 
@@ -828,12 +883,14 @@ TabConfig:CreateButton({
     Name = "🛑 Detener todos los loops",
     Callback = function()
         STATE.running = false
-        Rayfield:Notify({ Title = "Detenido", Content = "Scripts detenidos", Duration = 3 })
+        pcall(function()
+            Rayfield:Notify({ Title = "Detenido", Content = "Scripts detenidos", Duration = 3 })
+        end)
     end,
 })
 
 -- ============================================================
--- [13] BUCLE PRINCIPAL DE AUTO-EQUIP
+-- [13] BUCLE PRINCIPAL
 -- ============================================================
 task.spawn(function()
     while STATE.running do
@@ -851,13 +908,15 @@ task.spawn(function()
     end
 end)
 
-game:BindToClose(function() guardarCache() end)
+-- ❌ BindToClose ELIMINADO (solo funciona en server)
 
-Rayfield:Notify({
-    Title = "✅ Hub cargado",
-    Content = contar(STATE.cache) .. " en cache | " .. STATE.slots .. " slots",
-    Duration = 6,
-})
+pcall(function()
+    Rayfield:Notify({
+        Title = "✅ Hub cargado",
+        Content = contar(STATE.cache) .. " en cache | " .. STATE.slots .. " slots",
+        Duration = 6,
+    })
+end)
 
-print("\n✅ HUB v5 CARGADO")
-print("📌 Cache actual: " .. contar(STATE.cache) .. " mascotas")
+print("\n✅ HUB v6 CARGADO")
+print("📌 Cache: " .. contar(STATE.cache) .. " mascotas")
