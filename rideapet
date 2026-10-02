@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║   RIDE A PET - HUB COMPLETO v9                           ║
--- ║   Incluye diagnóstico para descubrir remotes             ║
+-- ║   RIDE A PET - HUB COMPLETO v10                          ║
+-- ║   Con diagnóstico mejorado para capturar PetKeys nuevas  ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
@@ -54,6 +54,18 @@ local STATE = {
 }
 
 local UUID_PATTERN = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
+
+local eventosIgnorados = {
+    PlayerActivity = true,
+    Fps = true,
+    RequestPlotEggs = true,
+    Accept = true,
+    PetCollect = true,
+    EggPlaced = true,
+    RadarState = true,
+    PetFed = true,
+    PetMove = true,
+}
 
 -- ============================================================
 -- [3] UTILIDADES
@@ -190,7 +202,6 @@ local function escanearInventarioAsync(onProgress)
     local antes = contar(STATE.cache)
     local nuevos = 0
     local procesadas = 0
-    local saltadasMetatable = 0
     
     local listaGC = getgc(true)
     local total = #listaGC
@@ -222,9 +233,7 @@ local function escanearInventarioAsync(onProgress)
                     if ok_next and first ~= nil then tieneMT = true end
                 end
                 
-                if tieneMT then
-                    saltadasMetatable = saltadasMetatable + 1
-                else
+                if not tieneMT then
                     local numClaves = 0
                     pcall(function()
                         for _ in next, obj do
@@ -237,23 +246,17 @@ local function escanearInventarioAsync(onProgress)
                         pcall(function()
                             local k = obj.key
                             if type(k) ~= "string" or #k ~= 36 then return end
-                            
                             local name = obj.name
                             local mut = obj.mutation
                             local age = obj.age
                             local inc = obj.income
-                            
-                            if type(name) == "string"
-                               and type(mut) == "string"
-                               and type(age) == "number"
-                               and type(inc) == "number" then
+                            if type(name) == "string" and type(mut) == "string"
+                               and type(age) == "number" and type(inc) == "number" then
                                 if k:match(UUID_PATTERN) then
                                     if not STATE.cache[k] then
                                         STATE.cache[k] = {
-                                            name = name,
-                                            mutation = mut,
-                                            age = age,
-                                            income = inc,
+                                            name = name, mutation = mut,
+                                            age = age, income = inc,
                                         }
                                         nuevos = nuevos + 1
                                     else
@@ -270,10 +273,7 @@ local function escanearInventarioAsync(onProgress)
         
         i = fin + 1
         task.wait(DELAY)
-        
-        if onProgress then
-            onProgress(i, total, nuevos)
-        end
+        if onProgress then onProgress(i, total, nuevos) end
     end
     
     return {
@@ -440,7 +440,7 @@ local function autoEquipar(usarPotencial)
 end
 
 -- ============================================================
--- [10] HOOKS DE APRENDIZAJE CONTINUO
+-- [10] HOOKS
 -- ============================================================
 local function instalarHooks()
     pcall(function()
@@ -483,31 +483,35 @@ local function instalarHooks()
 end
 
 -- ============================================================
--- [11] DIAGNÓSTICO DE REMOTES
+-- [11] DIAGNÓSTICO v2
 -- ============================================================
-local eventosIgnorados = {
-    PetCollect = true,
-    EggPlaced = true,
-    RadarState = true,
-    PetFed = true,
-    PetMove = true,
-}
-
-local function iniciarDiagnostico(duracionSegundos)
+local function iniciarDiagnosticoV2(duracionSegundos)
     if STATE.diagnosticActivo then return end
     STATE.diagnosticActivo = true
     STATE.diagnosticCapturas = {}
     
-    print("\n╔══════════════════════════════════════════╗")
-    print("║  DIAGNÓSTICO INICIADO (" .. duracionSegundos .. "s)          ║")
-    print("╚══════════════════════════════════════════╝")
-    print("👉 HAZ AHORA:")
-    print("   1. Abre el inventario")
-    print("   2. Click en una mascota (se queda en la mano)")
-    print("   3. Click en el suelo para soltarla")
-    print("   4. Repite 2-3 veces")
+    -- Snapshot de keys conocidas ANTES
+    local keysAntes = {}
+    for k, _ in pairs(STATE.cache) do keysAntes[k] = true end
     
-    local capturados = 0
+    print("\n╔══════════════════════════════════════════╗")
+    print("║  DIAGNÓSTICO v2 (" .. duracionSegundos .. "s)                ║")
+    print("╚══════════════════════════════════════════╝")
+    print("")
+    print("👉 HAZ EXACTAMENTE ESTO:")
+    print("")
+    print("1. Cierra todo, ve al RANCHO")
+    print("2. Anota qué mascotas TIENES colocadas")
+    print("3. Abre el INVENTARIO")
+    print("4. Busca una mascota que NO ESTÉ EN EL RANCHO")
+    print("   (por ejemplo: si tienes Cerberus, coge Kitsune)")
+    print("5. Click en esa mascota (queda en la mano)")
+    print("6. Click en el SUELO para soltarla")
+    print("")
+    print("🎯 Esperando PlacePet con PetKey NUEVA...")
+    print("")
+    
+    local nuevasKeys = {}
     
     local ok = pcall(function()
         local mt = getrawmetatable(game)
@@ -518,37 +522,46 @@ local function iniciarDiagnostico(duracionSegundos)
             local m = getnamecallmethod()
             
             if m == "FireServer" and typeof(self) == "Instance" and self:IsA("RemoteEvent") then
-                if not eventosIgnorados[self.Name] and STATE.diagnosticActivo then
+                if STATE.diagnosticActivo and not eventosIgnorados[self.Name] then
                     local args = {...}
-                    capturados = capturados + 1
                     
-                    local info = {
-                        numero = capturados,
-                        nombre = self.Name,
-                        args = {},
-                    }
-                    
-                    local lineas = {"[🔥 #" .. capturados .. "] " .. self.Name}
-                    for i, v in ipairs(args) do
-                        if type(v) == "table" then
-                            local claves = {}
-                            local n = 0
-                            for k, _ in pairs(v) do
-                                n = n + 1
-                                if n <= 8 then table.insert(claves, tostring(k)) end
-                            end
-                            table.insert(info.args, {tipo = "table", claves = claves})
-                            table.insert(lineas, "   arg[" .. i .. "] (tabla): " .. table.concat(claves, ", "))
-                        else
-                            local s = tostring(v)
-                            table.insert(info.args, {tipo = type(v), valor = s:sub(1, 80)})
-                            if #s > 80 then s = s:sub(1, 80) .. "..." end
-                            table.insert(lineas, "   arg[" .. i .. "] (" .. type(v) .. ") = " .. s)
+                    if self.Name == "PlacePet" and type(args[1]) == "string" then
+                        local key = args[1]
+                        if not keysAntes[key] and key:match(UUID_PATTERN) then
+                            -- ¡NUEVA KEY!
+                            nuevasKeys[key] = true
+                            print("")
+                            print("╔══════════════════════════════════════════╗")
+                            print("║  🎯 ¡NUEVA PETKEY CAPTURADA!             ║")
+                            print("╚══════════════════════════════════════════╝")
+                            print("   PetKey: " .. key)
+                            print("   Posición: " .. tostring(args[2]))
+                            print("")
+                        elseif keysAntes[key] then
+                            print("[⏭️  Ya conocida] " .. key:sub(1, 8) .. "...")
                         end
+                    elseif self.Name == "PickupPet" and type(args[1]) == "string" then
+                        print("[📤 PickupPet] " .. args[1]:sub(1, 8) .. "...")
+                    elseif not eventosIgnorados[self.Name] then
+                        -- Otros remotes interesantes
+                        local lineas = {"[🔍 " .. self.Name .. "]"}
+                        for i, v in ipairs(args) do
+                            if type(v) == "table" then
+                                local claves = {}
+                                local n = 0
+                                for k, _ in pairs(v) do
+                                    n = n + 1
+                                    if n <= 5 then table.insert(claves, tostring(k)) end
+                                end
+                                table.insert(lineas, "   arg[" .. i .. "]: " .. table.concat(claves, ", "))
+                            else
+                                local s = tostring(v)
+                                if #s > 60 then s = s:sub(1, 60) .. "..." end
+                                table.insert(lineas, "   arg[" .. i .. "] (" .. type(v) .. ") = " .. s)
+                            end
+                        end
+                        print(table.concat(lineas, "\n"))
                     end
-                    
-                    table.insert(STATE.diagnosticCapturas, info)
-                    print(table.concat(lineas, "\n"))
                 end
             end
             
@@ -571,23 +584,26 @@ local function iniciarDiagnostico(duracionSegundos)
         print("\n╔══════════════════════════════════════════╗")
         print("║  DIAGNÓSTICO TERMINADO                   ║")
         print("╚══════════════════════════════════════════╝")
-        print("Total remotes capturados: " .. #STATE.diagnosticCapturas)
         
-        -- Contar por nombre
-        local porNombre = {}
-        for _, c in ipairs(STATE.diagnosticCapturas) do
-            porNombre[c.nombre] = (porNombre[c.nombre] or 0) + 1
-        end
-        
-        print("\nRemotes capturados:")
-        for nombre, cuenta in pairs(porNombre) do
-            print("   " .. nombre .. ": " .. cuenta .. " veces")
+        local totalNuevas = contar(nuevasKeys)
+        if totalNuevas > 0 then
+            print("✅ ¡FUNCIONÓ! Se capturaron " .. totalNuevas .. " PetKeys nuevas:")
+            for k, _ in pairs(nuevasKeys) do
+                print("   → " .. k)
+            end
+            print("")
+            print("👉 El flujo manual SÍ captura keys nuevas.")
+            print("👉 Ahora se puede automatizar con clicks simulados.")
+        else
+            print("❌ NO se capturó ninguna key nueva.")
+            print("   → El juego NO dispara PlacePet al colocar del inventario.")
+            print("   → Necesitamos otra estrategia.")
         end
         
         pcall(function()
             Rayfield:Notify({
-                Title = "✅ Diagnóstico terminado",
-                Content = #STATE.diagnosticCapturas .. " remotes capturados. Mira la consola.",
+                Title = "Diagnóstico terminado",
+                Content = totalNuevas .. " keys nuevas capturadas",
                 Duration = 8,
             })
         end)
@@ -599,7 +615,7 @@ end
 -- ============================================================
 cargarCache()
 print("╔══════════════════════════════════════════╗")
-print("║  RIDE A PET HUB v9                       ║")
+print("║  RIDE A PET HUB v10                      ║")
 print("╚══════════════════════════════════════════╝")
 print("📂 Cache inicial: " .. contar(STATE.cache))
 
@@ -616,7 +632,7 @@ task.spawn(function()
         STATE.slots = 5 + r
         print("📊 Rebirth: " .. r .. " | Mult: x" .. (r+1) .. " | Slots: " .. (5+r))
     else
-        print("⚠️ No se pudo detectar rebirth (default 0)")
+        print("⚠️ No se pudo detectar rebirth")
     end
 end)
 
@@ -626,7 +642,7 @@ end)
 local Window = Rayfield:CreateWindow({
     Name = "Ride a Pet - Auto Equip Hub",
     LoadingTitle = "Cargando Hub...",
-    LoadingSubtitle = "v9",
+    LoadingSubtitle = "v10",
     ConfigurationSaving = { Enabled = false },
     Discord = { Enabled = false },
     KeySystem = false,
@@ -654,7 +670,6 @@ task.spawn(function()
 end)
 
 TabInicio:CreateSection("Aprendizaje")
-TabInicio:CreateLabel("Solo captura las COLOCADAS. Las del inventario no están en cliente.")
 
 local lblProgresoGC = TabInicio:CreateLabel("Estado GC: listo")
 
@@ -688,75 +703,37 @@ TabInicio:CreateButton({
     end,
 })
 
-TabInicio:CreateButton({
-    Name = "📖 Leer colocadas actuales",
-    Callback = function()
-        task.spawn(function()
-            local colocadas = obtenerColocadas()
-            pcall(function()
-                lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
-                Rayfield:Notify({
-                    Title = "Colocadas",
-                    Content = #colocadas .. " leídas",
-                    Duration = 3,
-                })
-            end)
-        end)
-    end,
-})
-
 -- ─────────────────────────────────────────────────────────
 -- PESTAÑA: DIAGNÓSTICO
 -- ─────────────────────────────────────────────────────────
 local TabDiag = Window:CreateTab("Diagnóstico", 4483362458)
-TabDiag:CreateSection("Descubrir remotes de colocación")
-TabDiag:CreateLabel("Captura qué remotes dispara el juego")
-TabDiag:CreateLabel("cuando colocas una mascota manualmente.")
-TabDiag:CreateLabel("")
-TabDiag:CreateLabel("👉 Instrucciones:")
-TabDiag:CreateLabel("1. Pulsa 'Iniciar diagnóstico'")
-TabDiag:CreateLabel("2. Abre el inventario")
-TabDiag:CreateLabel("3. Click en una mascota (queda en la mano)")
-TabDiag:CreateLabel("4. Click en el suelo para soltarla")
-TabDiag:CreateLabel("5. Repite 2-3 veces")
-TabDiag:CreateLabel("6. Mira la consola al terminar")
+TabDiag:CreateSection("Descubrir si captura keys nuevas")
+
+TabDiag:CreateLabel("👉 INSTRUCCIONES:")
+TabDiag:CreateLabel("1. Pulsa 'Iniciar diagnóstico (60s)'")
+TabDiag:CreateLabel("2. Ve al RANCHO y anota qué hay colocado")
+TabDiag:CreateLabel("3. Abre el INVENTARIO")
+TabDiag:CreateLabel("4. Coge una mascota que NO esté en el rancho")
+TabDiag:CreateLabel("5. Click en ella (queda en la mano)")
+TabDiag:CreateLabel("6. Click en el SUELO para soltarla")
+TabDiag:CreateLabel("7. Mira la consola al terminar")
 
 TabDiag:CreateButton({
-    Name = "🎬 Iniciar diagnóstico (40 segundos)",
+    Name = "🎬 Iniciar diagnóstico (60s)",
     Callback = function()
         if STATE.diagnosticActivo then
             pcall(function()
-                Rayfield:Notify({ Title = "En curso", Content = "Ya está activo", Duration = 3 })
+                Rayfield:Notify({ Title = "En curso", Content = "Ya activo", Duration = 3 })
             end)
             return
         end
-        iniciarDiagnostico(40)
+        iniciarDiagnosticoV2(60)
         pcall(function()
             Rayfield:Notify({
                 Title = "Diagnóstico",
-                Content = "40s. Haz el flujo manual AHORA.",
-                Duration = 5,
+                Content = "60s. Sigue las instrucciones en consola.",
+                Duration = 6,
             })
-        end)
-    end,
-})
-
-TabDiag:CreateButton({
-    Name = "📋 Mostrar últimas capturas",
-    Callback = function()
-        print("\n📋 ÚLTIMAS CAPTURAS:")
-        for i, c in ipairs(STATE.diagnosticCapturas) do
-            print("#" .. i .. " " .. c.nombre)
-            for j, a in ipairs(c.args) do
-                if a.tipo == "table" then
-                    print("   arg[" .. j .. "] (tabla): " .. table.concat(a.claves, ", "))
-                else
-                    print("   arg[" .. j .. "] (" .. a.tipo .. ") = " .. a.valor)
-                end
-            end
-        end
-        pcall(function()
-            Rayfield:Notify({ Title = "Capturas", Content = #STATE.diagnosticCapturas .. " en consola", Duration = 4 })
         end)
     end,
 })
@@ -852,9 +829,6 @@ TabRanking:CreateButton({
             print(string.format("%2d. %-14s %-10s Age %3d | %s",
                 i, p.name, p.mutation, p.age, formatearDinero(p.valor)))
         end
-        pcall(function()
-            Rayfield:Notify({ Title = "Ranking", Content = "Consola", Duration = 3 })
-        end)
     end,
 })
 
@@ -878,9 +852,6 @@ TabRanking:CreateButton({
             print(string.format("%2d. %-14s %-10s Age %3d | %s",
                 i, p.name, p.mutation, p.age, formatearDinero(p.valor)))
         end
-        pcall(function()
-            Rayfield:Notify({ Title = "Ranking", Content = "Consola", Duration = 3 })
-        end)
     end,
 })
 
@@ -894,9 +865,6 @@ TabRanking:CreateButton({
                 print(string.format("%2d. %-14s %-10s Age %3d | %s",
                     i, p.name, p.mutation, p.age, formatearDinero(p.income)))
             end
-            pcall(function()
-                Rayfield:Notify({ Title = "Colocadas", Content = #colocadas, Duration = 3 })
-            end)
         end)
     end,
 })
@@ -921,10 +889,7 @@ TabConfig:CreateButton({
     Callback = function()
         STATE.cache = {}
         pcall(function() if delfile then delfile(CONFIG.ARCHIVO_CACHE) end end)
-        pcall(function()
-            lblCache:Set("💾 Cache: 0")
-            Rayfield:Notify({ Title = "Cache", Content = "Borrado", Duration = 3 })
-        end)
+        pcall(function() lblCache:Set("💾 Cache: 0") end)
     end,
 })
 
@@ -969,12 +934,11 @@ end)
 
 pcall(function()
     Rayfield:Notify({
-        Title = "✅ Hub v9 cargado",
-        Content = contar(STATE.cache) .. " en cache. Usa Diagnóstico.",
+        Title = "✅ Hub v10 cargado",
+        Content = contar(STATE.cache) .. " en cache",
         Duration = 6,
     })
 end)
 
-print("\n✅ HUB v9 CARGADO")
+print("\n✅ HUB v10 CARGADO")
 print("📌 Cache: " .. contar(STATE.cache))
-print("📌 Siguiente paso: pestaña DIAGNÓSTICO para ver qué remotes dispara el juego")
