@@ -1,6 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║   RIDE A PET - HUB COMPLETO v11                          ║
--- ║   Aprender TODAS vía UI con click simulado               ║
+-- ║   RIDE A PET - HUB COMPLETO v12 (RÁPIDO)                 ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
@@ -15,7 +14,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 local player = Players.LocalPlayer
 
 local PetsMod = require(ReplicatedStorage.GameData.Pets)
@@ -32,8 +30,8 @@ local CONFIG = {
     INTERVALO_AUTO_EQUIP = 90,
     ARCHIVO_CACHE = "rideapet_cache.json",
     MAX_TABLAS_ESCANEO = 60000,
-    VELOCIDAD_UI = 0.35,       -- Segundos entre cada paso del aprendizaje UI
-    VELOCIDAD_LIMPIEZA = 0.2,  -- Segundos entre PickupPet
+    VELOCIDAD_UI = 0.15,        -- ⚡ Reducido de 0.35 a 0.15
+    VELOCIDAD_LIMPIEZA = 0.08,  -- ⚡ Reducido de 0.2 a 0.08
 }
 
 local PERFILES = {
@@ -53,6 +51,8 @@ local STATE = {
     slots = 5,
     modoAutoEquip = nil,
     perfilEscaneo = "🚶 Normal (lag leve, 20-30s)",
+    ultimaPetKeyDetectada = nil,
+    keysColocadasPorMi = {},  -- Trackear keys que YO puse (para limpiar rápido)
 }
 
 local UUID_PATTERN = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
@@ -108,7 +108,7 @@ local function guardarCache()
 end
 
 -- ============================================================
--- [5] LEER COLOCADAS
+-- [5] LEER COLOCADAS (solo cuando hace falta)
 -- ============================================================
 local function obtenerColocadas()
     local save = nil
@@ -388,10 +388,10 @@ local function autoEquipar(usarPotencial)
         if not estaEnMejores then
             pcall(function() PickupPet:FireServer(c.key) end)
             quitadas = quitadas + 1
-            task.wait(0.35)
+            task.wait(0.25)
         end
     end
-    if quitadas > 0 then print("   🔻 Quitadas " .. quitadas) task.wait(1) end
+    if quitadas > 0 then print("   🔻 Quitadas " .. quitadas) task.wait(0.8) end
     
     local posBase = Vector3.new(0, 0, 0)
     pcall(function()
@@ -421,7 +421,7 @@ local function autoEquipar(usarPotencial)
             local pos = posBase + Vector3.new(offsetX, 5, offsetZ)
             pcall(function() PlacePet:FireServer(m.key, pos) end)
             puestas = puestas + 1
-            task.wait(0.4)
+            task.wait(0.3)
         end
     end
     if puestas > 0 then print("   🔺 Colocadas " .. puestas) end
@@ -434,8 +434,6 @@ end
 -- ============================================================
 -- [10] HOOKS
 -- ============================================================
-local ultimaPetKeyDetectada = nil
-
 local function instalarHooks()
     pcall(function()
         local mt = getrawmetatable(game)
@@ -444,12 +442,15 @@ local function instalarHooks()
         mt.__namecall = newcclosure(function(self, ...)
             local m = getnamecallmethod()
             if m == "FireServer" and (self == PlacePet or self == PickupPet) then
-                for _, v in ipairs({...}) do
+                local args = {...}
+                for i, v in ipairs(args) do
                     if type(v) == "string" and v:match(UUID_PATTERN) then
                         if not STATE.cache[v] then STATE.cache[v] = {} end
                         STATE.cache[v].lastSeen = os.time()
-                        if self == PlacePet then
-                            ultimaPetKeyDetectada = v
+                        
+                        -- Capturar la key del PlacePet para el aprendizaje UI
+                        if self == PlacePet and i == 1 then
+                            STATE.ultimaPetKeyDetectada = v
                         end
                     end
                 end
@@ -480,7 +481,7 @@ local function instalarHooks()
 end
 
 -- ============================================================
--- [11] APRENDER VÍA UI (con click simulado en el suelo)
+-- [11] APRENDER VÍA UI (VERSIÓN RÁPIDA)
 -- ============================================================
 local function obtenerGrid()
     local pg = player:FindFirstChild("PlayerGui")
@@ -495,30 +496,11 @@ local function obtenerGrid()
     return nil
 end
 
--- Obtiene el centro del plot en coordenadas de pantalla
-local function obtenerPosicionPlotEnPantalla()
-    local posBase = Vector3.new(0, 0, 0)
-    pcall(function()
-        local plot = game.Workspace:FindFirstChild("Plots")
-        plot = plot and plot:FindFirstChild("Plot")
-        if plot then
-            local bp = plot:FindFirstChild("Baseplate")
-            if bp and bp:IsA("BasePart") then
-                posBase = bp.Position + Vector3.new(0, 5, 0)
-            end
-        end
-    end)
-    return posBase
-end
-
-local function aprenderPorUI(onProgress)
+local function aprenderPorUIRapido(onProgress)
     local grid = obtenerGrid()
     if not grid then
         return {error = "Grid no encontrado. Abre la UI de inventario."}
     end
-    
-    -- Obtener posición 3D del plot (para soltar allí)
-    local posPlot = obtenerPosicionPlotEnPantalla()
     
     -- Recolectar items
     local items = {}
@@ -531,110 +513,168 @@ local function aprenderPorUI(onProgress)
     local total = #items
     local antes = contar(STATE.cache)
     local capturados = 0
+    local keysDeEsteAprendizaje = {}  -- Trackear las keys que capturamos aquí
     
-    print("\n🎓 Aprendiendo vía UI: " .. total .. " items")
-    print("   → Para cada uno: click item → click suelo → captura key → limpia rancho")
+    print("\n🎓 APRENDIZAJE RÁPIDO v2: " .. total .. " items")
+    print("   ⚡ Velocidad: " .. CONFIG.VELOCIDAD_UI .. "s por paso")
+    print("   📊 Tiempo estimado: " .. math.floor(total * CONFIG.VELOCIDAD_UI * 3) .. " segundos")
+    print("")
     
+    -- Limpiar rancho UNA vez al inicio para tener espacio
+    print("🧹 Limpiando rancho inicial...")
+    local colocadasIniciales = obtenerColocadas()
+    for _, c in ipairs(colocadasIniciales) do
+        if not STATE.running then break end
+        pcall(function() PickupPet:FireServer(c.key) end)
+        task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
+    end
+    task.wait(0.5)
+    
+    -- ══════════════════════════════════════════════════════════
+    -- LOOP PRINCIPAL RÁPIDO
+    -- ══════════════════════════════════════════════════════════
     for idx, item in ipairs(items) do
         if not STATE.running or STATE.cancelarEscaneo then break end
         
-        -- PASO 1: Poner mascota en mano (click en el item)
+        -- Reset flag
+        STATE.ultimaPetKeyDetectada = nil
+        
+        -- PASO 1: Click en el item (mascota → mano)
         pcall(function()
             if firesignal then
                 firesignal(item.MouseButton1Click)
-                firesignal(item.Activated)
             end
         end)
         
         task.wait(CONFIG.VELOCIDAD_UI)
         
-        -- PASO 2: Capturar keys NUEVAS por escaneo de memoria
-        local keysAntes = {}
-        for k, _ in pairs(STATE.cache) do keysAntes[k] = true end
-        
-        -- Escaneo rápido limitado
+        -- PASO 2: Click en el suelo (soltar mascota → dispara PlacePet)
         pcall(function()
-            local count = 0
-            for _, obj in ipairs(getgc(true)) do
-                count = count + 1
-                if count > 15000 then break end
-                if count % 500 == 0 then task.wait() end
-                
-                if type(obj) == "table" then
-                    pcall(function()
-                        local k = obj.key
-                        if type(k) == "string" and #k == 36 then
-                            local name = obj.name
-                            local mut = obj.mutation
-                            local age = obj.age
-                            local inc = obj.income
-                            if type(name) == "string" and type(mut) == "string"
-                               and type(age) == "number" and type(inc) == "number" then
-                                if k:match(UUID_PATTERN) then
-                                    if not STATE.cache[k] then
-                                        STATE.cache[k] = {
-                                            name = name, mutation = mut,
-                                            age = age, income = inc,
-                                        }
-                                        capturados = capturados + 1
-                                    end
-                                end
-                            end
+            if mousemoveabs and mouse1click and workspace.CurrentCamera then
+                local plot = game.Workspace:FindFirstChild("Plots")
+                plot = plot and plot:FindFirstChild("Plot")
+                if plot then
+                    local bp = plot:FindFirstChild("Baseplate")
+                    if bp and bp:IsA("BasePart") then
+                        local posPlot = bp.Position + Vector3.new(0, 5, 0)
+                        local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(posPlot)
+                        if onScreen then
+                            mousemoveabs(screenPos.X, screenPos.Y)
+                            task.wait(0.02)
+                            mouse1click()
                         end
-                    end)
-                end
-            end
-        end)
-        
-        -- PASO 3: Limpiar la mano (por si la mascota sigue en la mano)
-        -- Método 1: Simular click en el suelo con mousemoveabs
-        pcall(function()
-            if mousemoveabs and mouse1click and gethui then
-                -- Obtener viewport y calcular screen coords del plot
-                local cam = workspace.CurrentCamera
-                if cam then
-                    local screenPos, onScreen = cam:WorldToViewportPoint(posPlot)
-                    if onScreen then
-                        mousemoveabs(screenPos.X, screenPos.Y)
-                        task.wait(0.1)
-                        mouse1click()
                     end
                 end
             end
         end)
         
+        -- PASO 3: Esperar a que el hook capture la key
         task.wait(CONFIG.VELOCIDAD_UI)
         
-        -- PASO 4: Guardar la última key capturada por el hook (PlacePet)
-        if ultimaPetKeyDetectada then
-            if not keysAntes[ultimaPetKeyDetectada] then
-                capturados = capturados + 1
+        -- PASO 4: Registrar la key capturada
+        local keyCapturada = STATE.ultimaPetKeyDetectada
+        if keyCapturada then
+            if not keysDeEsteAprendizaje[keyCapturada] then
+                keysDeEsteAprendizaje[keyCapturada] = true
+                
+                -- Ver si ya estaba en cache antes
+                local yaExistia = STATE.cache[keyCapturada] and STATE.cache[keyCapturada].name
+                if not yaExistia then
+                    capturados = capturados + 1
+                    -- No tenemos el nombre/mutación aún, los sacaremos del getgc
+                    STATE.cache[keyCapturada] = STATE.cache[keyCapturada] or {}
+                    STATE.cache[keyCapturada].lastSeen = os.time()
+                end
             end
-            ultimaPetKeyDetectada = nil
-        end
-        
-        -- PASO 5: Quitar todas las colocadas (limpiar rancho)
-        local colocadas = obtenerColocadas()
-        for _, c in ipairs(colocadas) do
-            pcall(function() PickupPet:FireServer(c.key) end)
+            
+            -- PASO 5: Quitar SOLO la key que acabamos de capturar
+            pcall(function() PickupPet:FireServer(keyCapturada) end)
             task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
+        else
+            -- No se capturó ninguna key, limpiar por si acaso
+            pcall(function()
+                for _, c in ipairs(STATE.keysColocadasPorMi) do
+                    PickupPet:FireServer(c)
+                end
+            end)
         end
-        
-        task.wait(CONFIG.VELOCIDAD_UI)
         
         if onProgress then
             onProgress(idx, total, capturados)
         end
     end
     
+    -- ══════════════════════════════════════════════════════════
+    -- ENRIQUECER CACHE CON NOMBRES/MUTACIONES (una sola pasada)
+    -- ══════════════════════════════════════════════════════════
+    print("\n📝 Enriqueciendo cache con nombres y mutaciones...")
+    print("   (una sola pasada de getgc, no por item)")
+    
+    local enriquecidos = 0
+    pcall(function()
+        local count = 0
+        for _, obj in ipairs(getgc(true)) do
+            count = count + 1
+            if count > 50000 then break end
+            if count % 500 == 0 then task.wait() end
+            
+            if type(obj) == "table" then
+                pcall(function()
+                    local k = obj.key
+                    if type(k) == "string" and #k == 36 and STATE.cache[k] then
+                        local name = obj.name
+                        local mut = obj.mutation
+                        local age = obj.age
+                        local inc = obj.income
+                        
+                        if type(name) == "string" and type(mut) == "string"
+                           and type(age) == "number" and type(inc) == "number" then
+                            if not STATE.cache[k].name then
+                                STATE.cache[k] = {
+                                    name = name, mutation = mut,
+                                    age = age, income = inc,
+                                }
+                                enriquecidos = enriquecidos + 1
+                            else
+                                STATE.cache[k].age = age
+                                STATE.cache[k].income = inc
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+    
+    -- Contar cuántas keys quedaron sin nombre
+    local sinNombre = 0
+    for k, v in pairs(STATE.cache) do
+        if not v.name or v.name == "" then
+            sinNombre = sinNombre + 1
+        end
+    end
+    
+    -- Limpiar las keys sin nombre (basura)
+    for k, v in pairs(STATE.cache) do
+        if not v.name or v.name == "" then
+            STATE.cache[k] = nil
+        end
+    end
+    
     guardarCache()
     
-    print("   ✅ Terminado. Capturados: " .. capturados .. " | Total cache: " .. contar(STATE.cache))
+    print("\n╔══════════════════════════════════════════╗")
+    print("║  ✅ APRENDIZAJE COMPLETADO               ║")
+    print("╚══════════════════════════════════════════╝")
+    print("   Nuevas capturadas: " .. capturados)
+    print("   Enriquecidas: " .. enriquecidos)
+    print("   Sin nombre (limpiadas): " .. sinNombre)
+    print("   Total cache final: " .. contar(STATE.cache))
     
     return {
         antes = antes,
         despues = contar(STATE.cache),
-        nuevos = capturados,
+        nuevos = contar(STATE.cache) - antes,
     }
 end
 
@@ -643,7 +683,7 @@ end
 -- ============================================================
 cargarCache()
 print("╔══════════════════════════════════════════╗")
-print("║  RIDE A PET HUB v11                      ║")
+print("║  RIDE A PET HUB v12 (RÁPIDO)             ║")
 print("╚══════════════════════════════════════════╝")
 print("📂 Cache inicial: " .. contar(STATE.cache))
 
@@ -670,7 +710,7 @@ end)
 local Window = Rayfield:CreateWindow({
     Name = "Ride a Pet - Auto Equip Hub",
     LoadingTitle = "Cargando Hub...",
-    LoadingSubtitle = "v11",
+    LoadingSubtitle = "v12 - Rápido",
     ConfigurationSaving = { Enabled = false },
     Discord = { Enabled = false },
     KeySystem = false,
@@ -702,20 +742,19 @@ TabInicio:CreateSection("Aprendizaje")
 local lblProgresoUI = TabInicio:CreateLabel("Estado UI: listo")
 
 TabInicio:CreateButton({
-    Name = "🎓 Aprender TODAS vía UI (RECOMENDADO)",
+    Name = "🎓 Aprender TODAS vía UI (RÁPIDO ~2min)",
     Callback = function()
         if STATE.isLearning then return end
         STATE.isLearning = true
         STATE.cancelarEscaneo = false
         
         task.spawn(function()
-            local stats = aprenderPorUI(function(i, total, capturados)
+            local stats = aprenderPorUIRapido(function(i, total, capturados)
                 pcall(function()
                     lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
                 end)
             end)
             
-            guardarCache()
             pcall(function()
                 if stats and stats.error then
                     lblProgresoUI:Set("❌ " .. stats.error)
@@ -818,9 +857,6 @@ TabAuto:CreateButton({
     Name = "🎯 Pulsar 'Place Best' del juego",
     Callback = function()
         pulsarPlaceBest()
-        pcall(function()
-            Rayfield:Notify({ Title = "PlaceBest", Content = "Ejecutado", Duration = 3 })
-        end)
     end,
 })
 
@@ -905,9 +941,9 @@ TabConfig:CreateSlider({
 })
 
 TabConfig:CreateSlider({
-    Name = "Velocidad UI (segundos por paso)",
-    Range = { 0.2, 2.0 },
-    Increment = 0.1,
+    Name = "⚡ Velocidad UI (seg por paso)",
+    Range = { 0.08, 1.0 },
+    Increment = 0.02,
     Suffix = "s",
     CurrentValue = CONFIG.VELOCIDAD_UI,
     Flag = "VelocidadUI",
@@ -927,9 +963,6 @@ TabConfig:CreateButton({
     Name = "💾 Guardar cache",
     Callback = function()
         guardarCache()
-        pcall(function()
-            Rayfield:Notify({ Title = "Cache", Content = "Guardado", Duration = 3 })
-        end)
     end,
 })
 
@@ -937,9 +970,6 @@ TabConfig:CreateButton({
     Name = "🛑 Detener todos los loops",
     Callback = function()
         STATE.running = false
-        pcall(function()
-            Rayfield:Notify({ Title = "Detenido", Content = "Scripts detenidos", Duration = 3 })
-        end)
     end,
 })
 
@@ -964,12 +994,12 @@ end)
 
 pcall(function()
     Rayfield:Notify({
-        Title = "✅ Hub v11 cargado",
+        Title = "✅ Hub v12 cargado",
         Content = contar(STATE.cache) .. " en cache",
         Duration = 6,
     })
 end)
 
-print("\n✅ HUB v11 CARGADO")
+print("\n✅ HUB v12 CARGADO")
 print("📌 Cache: " .. contar(STATE.cache))
-print("📌 Usa '🎓 Aprender TODAS vía UI' en la pestaña INICIO")
+print("📌 Usa '🎓 Aprender TODAS vía UI (RÁPIDO ~2min)'")
