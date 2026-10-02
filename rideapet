@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║   RIDE A PET - HUB COMPLETO v6 (FIXED)                   ║
+-- ║   RIDE A PET - HUB COMPLETO v7 (ANTI-CRASH)              ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
@@ -28,12 +28,13 @@ local PickupPet = ReplicatedStorage.Remotes.Game.PickupPet
 local CONFIG = {
     INTERVALO_AUTO_EQUIP = 90,
     ARCHIVO_CACHE = "rideapet_cache.json",
+    MAX_TABLAS_ESCANEO = 60000,  -- Límite duro anti-crash
 }
 
 local PERFILES = {
-    ["⚡ Rápido (con lag, 5-10s)"]    = { chunk = 2000, delay = 0.005 },
-    ["🚶 Normal (lag leve, 20-30s)"] = { chunk = 500,  delay = 0.05 },
-    ["🐢 Seguro (sin lag, 1-2min)"]  = { chunk = 100,  delay = 0.15 },
+    ["⚡ Rápido (con lag, 5-10s)"]    = { chunk = 1000, delay = 0.01 },
+    ["🚶 Normal (lag leve, 20-30s)"] = { chunk = 300,  delay = 0.08 },
+    ["🐢 Seguro (sin lag, 1-2min)"]  = { chunk = 80,   delay = 0.2 },
 }
 
 local STATE = {
@@ -96,62 +97,35 @@ local function guardarCache()
 end
 
 -- ============================================================
--- [5] DETECCIÓN DE REBIRTH (CORREGIDA)
+-- [5] DETECCIÓN DE REBIRTH
 -- ============================================================
-local function detectarRebirthAsync()
-    local rebirth = 0
-    local contador = 0
-    local encontrado = false
-    
-    pcall(function()
-        for _, obj in ipairs(getgc(true)) do
-            if encontrado then break end
-            
-            contador = contador + 1
-            if contador % 500 == 0 then task.wait() end
-            if contador > 30000 then break end
-            
-            if type(obj) == "table" then
-                pcall(function()
-                    for _, pet in pairs(obj) do
-                        if encontrado then return end
-                        if type(pet) == "table" then
-                            local pk = pet.PetKey
-                            local inc = pet.Income
-                            
-                            if type(pk) == "string" and type(inc) == "number" then
-                                local mut = pet.Mutation
-                                local age = pet.CurrentAge
-                                local base = pet.BaseIncome
-                                
-                                if mut and age and base and base > 0 then
-                                    local mutF = MutsMod.CombinedFactor(mut) or 1
-                                    local ageF = AgingMod.MultiplierFor(age) or 1
-                                    if mutF > 0 and ageF > 0 then
-                                        rebirth = math.floor(inc / (base * mutF * ageF) - 1 + 0.5)
-                                        if rebirth < 0 then rebirth = 0 end
-                                        encontrado = true
-                                        return
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end)
+local function detectarRebirthDesdeColocadas()
+    local colocadas = obtenerColocadas()
+    for _, c in ipairs(colocadas) do
+        local pData = PetsMod[c.name]
+        if pData and pData.Income and pData.Income > 0 then
+            local mutF = MutsMod.CombinedFactor(c.mutation) or 1
+            local ageF = AgingMod.MultiplierFor(c.age) or 1
+            if mutF > 0 and ageF > 0 then
+                local r = math.floor(c.income / (pData.Income * mutF * ageF) - 1 + 0.5)
+                if r >= 0 then
+                    return r
+                end
             end
         end
-    end)
-    
-    return rebirth
+    end
+    return 0
 end
 
 -- ============================================================
--- [6] ESCANEO CHUNKED
+-- [6] ESCANEO CON FILTROS ANTI-CRASH
 -- ============================================================
 local function escanearInventarioAsync(onProgress)
     local antes = contar(STATE.cache)
     local nuevos = 0
     local procesadas = 0
+    local saltadasMetatable = 0
+    local saltadasGrandes = 0
     
     local listaGC = getgc(true)
     local total = #listaGC
@@ -164,8 +138,9 @@ local function escanearInventarioAsync(onProgress)
     local vistos = {}
     
     while i <= total do
-        if STATE.cancelarEscaneo then
-            print("   🛑 Escaneo cancelado")
+        if STATE.cancelarEscaneo then break end
+        if procesadas > CONFIG.MAX_TABLAS_ESCANEO then
+            print("   ⚠️ Límite de tablas alcanzado (" .. CONFIG.MAX_TABLAS_ESCANEO .. ")")
             break
         end
         
@@ -173,39 +148,69 @@ local function escanearInventarioAsync(onProgress)
         
         for j = i, fin do
             local obj = listaGC[j]
+            
             if type(obj) == "table" and not vistos[obj] then
                 vistos[obj] = true
                 procesadas = procesadas + 1
                 
-                pcall(function()
-                    local k = obj.key
-                    if type(k) ~= "string" or #k ~= 36 then return end
-                    
-                    local name = obj.name
-                    local mut = obj.mutation
-                    local age = obj.age
-                    local inc = obj.income
-                    
-                    if type(name) == "string"
-                       and type(mut) == "string"
-                       and type(age) == "number"
-                       and type(inc) == "number" then
-                        if k:match(UUID_PATTERN) then
-                            if not STATE.cache[k] then
-                                STATE.cache[k] = {
-                                    name = name,
-                                    mutation = mut,
-                                    age = age,
-                                    income = inc,
-                                }
-                                nuevos = nuevos + 1
-                            else
-                                STATE.cache[k].age = age
-                                STATE.cache[k].income = inc
-                            end
-                        end
+                -- FILTRO 1: Saltar tablas con metatable no vacío
+                -- (evita cadenas __index infinitas que crashean)
+                local mtOk, mt = pcall(getmetatable, obj)
+                local tieneMT = false
+                if mtOk and type(mt) == "table" then
+                    local ok_next, first = pcall(next, mt)
+                    if ok_next and first ~= nil then
+                        tieneMT = true
                     end
-                end)
+                end
+                
+                if tieneMT then
+                    saltadasMetatable = saltadasMetatable + 1
+                else
+                    -- FILTRO 2: Contar claves primero, limitar a 30
+                    local numClaves = 0
+                    pcall(function()
+                        for _ in next, obj do
+                            numClaves = numClaves + 1
+                            if numClaves > 30 then break end
+                        end
+                    end)
+                    
+                    if numClaves > 0 and numClaves <= 30 then
+                        -- FILTRO 3: Lectura aislada en pcall
+                        pcall(function()
+                            local k = obj.key
+                            if type(k) ~= "string" or #k ~= 36 then return end
+                            
+                            local name = obj.name
+                            local mut = obj.mutation
+                            local age = obj.age
+                            local inc = obj.income
+                            
+                            if type(name) == "string"
+                               and type(mut) == "string"
+                               and type(age) == "number"
+                               and type(inc) == "number" then
+                                if k:match(UUID_PATTERN) then
+                                    if not STATE.cache[k] then
+                                        STATE.cache[k] = {
+                                            name = name,
+                                            mutation = mut,
+                                            age = age,
+                                            income = inc,
+                                        }
+                                        nuevos = nuevos + 1
+                                    else
+                                        STATE.cache[k].age = age
+                                        STATE.cache[k].income = inc
+                                    end
+                                end
+                            end
+                        end)
+                    else
+                        saltadasGrandes = saltadasGrandes + 1
+                    end
+                end
             end
         end
         
@@ -216,6 +221,10 @@ local function escanearInventarioAsync(onProgress)
             onProgress(i, total, nuevos)
         end
     end
+    
+    print("   📊 Procesadas: " .. procesadas)
+    print("   📊 Saltadas (metatable): " .. saltadasMetatable)
+    print("   📊 Saltadas (>30 claves): " .. saltadasGrandes)
     
     return {
         antes = antes,
@@ -236,7 +245,7 @@ local function obtenerColocadas()
         for _, obj in ipairs(getgc(true)) do
             contador = contador + 1
             if contador % 500 == 0 then task.wait() end
-            if contador > 50000 then break end
+            if contador > 30000 then break end
             
             if type(obj) == "table" then
                 local count = 0
@@ -494,43 +503,26 @@ end
 -- ============================================================
 cargarCache()
 print("╔══════════════════════════════════════════╗")
-print("║  RIDE A PET HUB v6                       ║")
+print("║  RIDE A PET HUB v7 (anti-crash)          ║")
 print("╚══════════════════════════════════════════╝")
 print("📂 Cache inicial: " .. contar(STATE.cache))
 
 instalarHooks()
 print("🎣 Hooks instalados")
 
--- Detectar rebirth (en background, con más tiempo)
+-- Detectar rebirth
 task.spawn(function()
     print("🔍 Detectando rebirth...")
-    -- Primero leer colocadas (rápido, encuentra el save)
-    local colocadas = obtenerColocadas()
-    if #colocadas > 0 then
-        -- Con las colocadas ya podemos calcular rebirth
-        for _, c in ipairs(colocadas) do
-            local pData = PetsMod[c.name]
-            if pData and pData.Income and pData.Income > 0 then
-                local mutF = MutsMod.CombinedFactor(c.mutation) or 1
-                local ageF = AgingMod.MultiplierFor(c.age) or 1
-                if mutF > 0 and ageF > 0 then
-                    local r = math.floor(c.income / (pData.Income * mutF * ageF) - 1 + 0.5)
-                    if r >= 0 then
-                        STATE.rebirth = r
-                        STATE.rebirthMult = r + 1
-                        STATE.slots = 5 + r
-                        print("📊 Rebirth: " .. r .. " | Mult: x" .. (r+1) .. " | Slots: " .. (5+r))
-                        return
-                    end
-                end
-            end
-        end
+    task.wait(0.5)
+    local r = detectarRebirthDesdeColocadas()
+    if r > 0 then
+        STATE.rebirth = r
+        STATE.rebirthMult = r + 1
+        STATE.slots = 5 + r
+        print("📊 Rebirth: " .. r .. " | Mult: x" .. (r+1) .. " | Slots: " .. (5+r))
+    else
+        print("⚠️ No se pudo detectar rebirth (usando default 0)")
     end
-    -- Fallback: escaneo profundo
-    STATE.rebirth = detectarRebirthAsync()
-    STATE.rebirthMult = STATE.rebirth + 1
-    STATE.slots = 5 + STATE.rebirth
-    print("📊 Rebirth: " .. STATE.rebirth .. " | Mult: x" .. STATE.rebirthMult .. " | Slots: " .. STATE.slots)
 end)
 
 -- ============================================================
@@ -539,7 +531,7 @@ end)
 local Window = Rayfield:CreateWindow({
     Name = "Ride a Pet - Auto Equip Hub",
     LoadingTitle = "Cargando Hub...",
-    LoadingSubtitle = "v6",
+    LoadingSubtitle = "v7 - Anti-Crash",
     ConfigurationSaving = { Enabled = false },
     Discord = { Enabled = false },
     KeySystem = false,
@@ -578,7 +570,6 @@ TabInicio:CreateDropdown({
     CurrentOption = "🚶 Normal (lag leve, 20-30s)",
     Flag = "PerfilEscaneo",
     Callback = function(option)
-        -- option puede ser string o tabla en Rayfield
         local valor = option
         if type(option) == "table" then
             valor = option[1] or option[#option]
@@ -857,6 +848,16 @@ TabConfig:CreateSlider({
     Callback = function(value) CONFIG.INTERVALO_AUTO_EQUIP = value end,
 })
 
+TabConfig:CreateSlider({
+    Name = "Máx tablas a escanear",
+    Range = { 10000, 200000 },
+    Increment = 10000,
+    Suffix = "",
+    CurrentValue = CONFIG.MAX_TABLAS_ESCANEO,
+    Flag = "MaxTablas",
+    Callback = function(value) CONFIG.MAX_TABLAS_ESCANEO = value end,
+})
+
 TabConfig:CreateButton({
     Name = "🗑️ Limpiar cache",
     Callback = function()
@@ -908,8 +909,6 @@ task.spawn(function()
     end
 end)
 
--- ❌ BindToClose ELIMINADO (solo funciona en server)
-
 pcall(function()
     Rayfield:Notify({
         Title = "✅ Hub cargado",
@@ -918,5 +917,5 @@ pcall(function()
     })
 end)
 
-print("\n✅ HUB v6 CARGADO")
+print("\n✅ HUB v7 CARGADO")
 print("📌 Cache: " .. contar(STATE.cache) .. " mascotas")
