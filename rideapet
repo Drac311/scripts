@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║   RIDE A PET - HUB v15                                   ║
--- ║   Auto-equip arreglado con verificación y fallback       ║
+-- ║   RIDE A PET - HUB v16                                   ║
+-- ║   Auto-equip vía UI (funciona siempre)                   ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
@@ -32,8 +32,8 @@ local CONFIG = {
     VELOCIDAD_UI = 0.15,
     VELOCIDAD_LIMPIEZA = 0.08,
     GUARDAR_CADA = 20,
-    USAR_PLACEBEST_FALLBACK = true,  -- Si nuestro auto-equip falla, pulsar PlaceBest
-    VERIFICAR_PLACEMENT = true,      -- Verificar que las mascotas se colocaron
+    VELOCIDAD_PLACE = 0.5,   -- Esperar entre cada place
+    VERIFICAR_PLACE = true,  -- Verificar cada place
 }
 
 local STATE = {
@@ -48,7 +48,7 @@ local STATE = {
     modoAutoEquip = nil,
     ultimaPetKeyDetectada = nil,
     indiceAprendizaje = 0,
-    posBasePlot = nil,  -- Cachear posición del plot
+    posBasePlot = nil,
 }
 
 local UUID_PATTERN = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
@@ -132,7 +132,7 @@ local function obtenerColocadas()
                                 count = count + 1
                             end
                         end
-                        if count > 5 then error("enough") end
+                        if count > 3 then error("enough") end
                     end
                 end)
                 if count >= 3 then save = obj break end
@@ -156,7 +156,6 @@ local function obtenerColocadas()
                             income = inc,
                         }
                         table.insert(lista, info)
-                        -- Actualizar cache con datos completos
                         if not STATE.cache[key] or not STATE.cache[key].name then
                             STATE.cache[key] = {
                                 name = info.name,
@@ -164,10 +163,6 @@ local function obtenerColocadas()
                                 age = info.age,
                                 income = info.income,
                             }
-                        else
-                            -- Actualizar age/income si tenemos el dato real
-                            STATE.cache[key].age = info.age
-                            STATE.cache[key].income = info.income
                         end
                     end
                 end
@@ -198,7 +193,7 @@ local function detectarRebirthDesdeColocadas()
 end
 
 -- ============================================================
--- [7] CÁLCULOS DE INGRESO
+-- [7] CÁLCULOS
 -- ============================================================
 local function calcularIncomeActual(nombre, mutacion, edad)
     local pData = PetsMod[nombre]
@@ -225,51 +220,7 @@ local function calcularIncomePotencial(nombre, mutacion)
 end
 
 -- ============================================================
--- [8] OBTENER POSICIÓN DEL PLOT (para colocar mascotas)
--- ============================================================
-local function obtenerPosicionPlot()
-    if STATE.posBasePlot then return STATE.posBasePlot end
-    
-    local pos = Vector3.new(0, 0, 0)
-    pcall(function()
-        local plots = game.Workspace:FindFirstChild("Plots")
-        if plots then
-            for _, plot in ipairs(plots:GetChildren()) do
-                if plot.Name == "Plot" or plot.Name:lower():find("plot") then
-                    local bp = plot:FindFirstChild("Baseplate")
-                    if not bp then
-                        -- Buscar cualquier BasePart
-                        for _, child in ipairs(plot:GetChildren()) do
-                            if child:IsA("BasePart") and child.Name:lower():find("base") then
-                                bp = child
-                                break
-                            end
-                        end
-                    end
-                    if bp and bp:IsA("BasePart") then
-                        pos = bp.Position
-                        break
-                    end
-                end
-            end
-        end
-    end)
-    
-    -- Fallback: usar posición del personaje
-    if pos == Vector3.new(0, 0, 0) then
-        pcall(function()
-            local char = player.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then pos = hrp.Position end
-        end)
-    end
-    
-    STATE.posBasePlot = pos
-    return pos
-end
-
--- ============================================================
--- [9] PLACE BEST (botón del juego)
+-- [8] BOTÓN PLACEBEST DEL JUEGO
 -- ============================================================
 local function obtenerBotonPlaceBest()
     local pg = player:FindFirstChild("PlayerGui")
@@ -293,217 +244,7 @@ local function pulsarPlaceBest()
 end
 
 -- ============================================================
--- [10] PLACE UNA SOLA MASCOTA (con verificación)
--- ============================================================
-local function colocarMascota(petKey, indice)
-    local posBase = obtenerPosicionPlot()
-    
-    -- Distribuir en grid pequeño alrededor de la base
-    local offsetX = ((indice - 1) % 5) * 6 - 12
-    local offsetZ = math.floor((indice - 1) / 5) * 6 - 6
-    local pos = posBase + Vector3.new(offsetX, 5, offsetZ)
-    
-    pcall(function()
-        PlacePet:FireServer(petKey, pos)
-    end)
-end
-
-local function quitarMascota(petKey)
-    pcall(function()
-        PickupPet:FireServer(petKey)
-    end)
-end
-
--- ============================================================
--- [11] AUTO-EQUIP (VERSIÓN ARREGLADA)
--- ============================================================
-local function autoEquipar(usarPotencial, modoDebug)
-    if STATE.isAutoEquiping or not STATE.running then 
-        print("   ⏸️ Auto-equip en curso o detenido")
-        return false
-    end
-    STATE.isAutoEquiping = true
-    
-    local modo = usarPotencial and "POTENCIAL" or "ACTUAL"
-    print("\n╔══════════════════════════════════════════╗")
-    print("║  AUTO-EQUIP: " .. modo .. string.rep(" ", 30 - #modo) .. " ║")
-    print("╚══════════════════════════════════════════╝")
-    
-    -- 1. Leer colocadas actuales
-    print("📖 Leyendo colocadas...")
-    local colocadas = obtenerColocadas()
-    local colocadasKeys = {}
-    for _, c in ipairs(colocadas) do 
-        colocadasKeys[c.key] = c 
-    end
-    print("   → " .. #colocadas .. " colocadas ahora")
-    
-    -- 2. Verificar cache
-    local cacheValido = contar(STATE.cache)
-    print("   → " .. cacheValido .. " keys en cache")
-    
-    if cacheValido < 2 then
-        print("   ⚠️ Muy pocas keys. Aprende primero.")
-        STATE.isAutoEquiping = false
-        return false
-    end
-    
-    -- 3. Construir ranking
-    local cacheLista = {}
-    for key, info in pairs(STATE.cache) do
-        if info.name and info.mutation then
-            local valor
-            if usarPotencial then
-                valor = calcularIncomePotencial(info.name, info.mutation)
-            else
-                valor = calcularIncomeActual(info.name, info.mutation, info.age or 0)
-            end
-            table.insert(cacheLista, {
-                key = key, name = info.name, mutation = info.mutation,
-                age = info.age or 0, valor = valor,
-            })
-        end
-    end
-    table.sort(cacheLista, function(a, b) return a.valor > b.valor end)
-    
-    -- 4. Seleccionar mejores N (keys únicas)
-    local mejoresN = {}
-    local keysUsadas = {}
-    for _, c in ipairs(cacheLista) do
-        if not keysUsadas[c.key] then
-            keysUsadas[c.key] = true
-            table.insert(mejoresN, c)
-            if #mejoresN >= STATE.slots then break end
-        end
-    end
-    
-    print("\n🏆 Mejores " .. #mejoresN .. " seleccionadas:")
-    for i, m in ipairs(mejoresN) do
-        print(string.format("   %2d. %-14s %-10s Age %3d | %s",
-            i, m.name, m.mutation, m.age, formatearDinero(m.valor)))
-    end
-    
-    -- 5. Ver qué hay que cambiar
-    local mejoresKeys = {}
-    for _, m in ipairs(mejoresN) do mejoresKeys[m.key] = m end
-    
-    -- Mascotas a quitar (están colocadas pero no en mejores)
-    local aQuitar = {}
-    for _, c in ipairs(colocadas) do
-        if not mejoresKeys[c.key] then
-            table.insert(aQuitar, c)
-        end
-    end
-    
-    -- Mascotas a poner (están en mejores pero no colocadas)
-    local aPoner = {}
-    for _, m in ipairs(mejoresN) do
-        if not colocadasKeys[m.key] then
-            table.insert(aPoner, m)
-        end
-    end
-    
-    print("\n📊 Plan:")
-    print("   → Quitar: " .. #aQuitar)
-    print("   → Poner: " .. #aPoner)
-    
-    if #aQuitar == 0 and #aPoner == 0 then
-        print("\n✅ Ya está óptimo. No hace falta cambiar nada.")
-        STATE.isAutoEquiping = false
-        return true
-    end
-    
-    -- 6. QUITAR las subóptimas
-    if #aQuitar > 0 then
-        print("\n🔻 Quitando " .. #aQuitar .. " mascotas...")
-        for i, c in ipairs(aQuitar) do
-            if not STATE.running then break end
-            print("   [" .. i .. "/" .. #aQuitar .. "] Quitando " .. c.name .. " " .. c.mutation .. " ...")
-            quitarMascota(c.key)
-            task.wait(0.35)
-        end
-        -- Esperar a que el servidor procese todo
-        print("   ⏳ Esperando procesamiento del servidor...")
-        task.wait(2)
-    end
-    
-    -- 7. COLOCAR las mejores
-    if #aPoner > 0 then
-        print("\n🔺 Colocando " .. #aPoner .. " mascotas...")
-        local puestas = 0
-        for i, m in ipairs(aPoner) do
-            if not STATE.running then break end
-            print("   [" .. i .. "/" .. #aPoner .. "] Colocando " .. m.name .. " " .. m.mutation .. " ...")
-            colocarMascota(m.key, i)
-            puestas = puestas + 1
-            task.wait(0.5)  -- Delay más largo para asegurar
-        end
-        print("   ⏳ Esperando procesamiento...")
-        task.wait(2)
-        
-        -- 8. VERIFICAR el resultado
-        if CONFIG.VERIFICAR_PLACEMENT then
-            print("\n🔍 Verificando resultado...")
-            local verificacion = obtenerColocadas()
-            local verificacionKeys = {}
-            for _, c in ipairs(verificacion) do verificacionKeys[c.key] = true end
-            
-            local exitosas = 0
-            for _, m in ipairs(mejoresN) do
-                if verificacionKeys[m.key] then
-                    exitosas = exitosas + 1
-                end
-            end
-            
-            print("   → Colocadas correctamente: " .. exitosas .. "/" .. #mejoresN)
-            
-            -- Si menos de la mitad se colocaron, usar fallback
-            if exitosas < math.floor(#mejoresN / 2) and CONFIG.USAR_PLACEBEST_FALLBACK then
-                print("\n⚠️ Colocación parcial. Usando fallback PlaceBest del juego...")
-                if pulsarPlaceBest() then
-                    print("   ✅ PlaceBest ejecutado")
-                    task.wait(2)
-                else
-                    print("   ❌ PlaceBest no disponible")
-                end
-            end
-        end
-    end
-    
-    guardarCache()
-    print("\n✅ AUTO-EQUIP COMPLETADO")
-    STATE.isAutoEquiping = false
-    return true
-end
-
--- ============================================================
--- [12] HOOKS
--- ============================================================
-local function instalarHooks()
-    pcall(function()
-        local mt = getrawmetatable(game)
-        local oldNC = mt.__namecall
-        setreadonly(mt, false)
-        mt.__namecall = newcclosure(function(self, ...)
-            local m = getnamecallmethod()
-            if m == "FireServer" and (self == PlacePet or self == PickupPet) then
-                local args = {...}
-                for i, v in ipairs(args) do
-                    if type(v) == "string" and v:match(UUID_PATTERN) then
-                        if self == PlacePet and i == 1 then
-                            STATE.ultimaPetKeyDetectada = v
-                        end
-                    end
-                end
-            end
-            return oldNC(self, ...)
-        end)
-        setreadonly(mt, true)
-    end)
-end
-
--- ============================================================
--- [13] DATOS DE LA UI
+-- [9] UI HELPERS
 -- ============================================================
 local function obtenerGrid()
     local pg = player:FindFirstChild("PlayerGui")
@@ -540,6 +281,301 @@ local function obtenerDatosDeItem(item)
     return nombre, mutacion
 end
 
+-- Busca un item en el grid que coincida con nombre + mutación
+local function buscarItemEnGrid(nombreBuscado, mutacionBuscada)
+    local grid = obtenerGrid()
+    if not grid then return nil end
+    
+    local mejorItem = nil
+    local mejorScore = 0
+    
+    for _, item in ipairs(grid:GetChildren()) do
+        if item:IsA("TextButton") then
+            local n, m = obtenerDatosDeItem(item)
+            if n == nombreBuscado and m == mutacionBuscada then
+                -- Preferir items visibles
+                local score = item.Visible and 100 or 50
+                -- Preferir items con peso bajo (más nuevos)
+                if score > mejorScore then
+                    mejorItem = item
+                    mejorScore = score
+                end
+                if item.Visible then break end  -- Preferir el primero visible
+            end
+        end
+    end
+    
+    return mejorItem
+end
+
+-- ============================================================
+-- [10] PLACE VÍA UI (click item + click suelo)
+-- ============================================================
+local function colocarViaUI(item)
+    if not item then return false end
+    
+    STATE.ultimaPetKeyDetectada = nil
+    
+    -- Paso 1: Click en el item (mascota a la mano)
+    pcall(function()
+        if firesignal then
+            firesignal(item.MouseButton1Click)
+        end
+    end)
+    task.wait(CONFIG.VELOCIDAD_UI)
+    
+    -- Paso 2: Click en el suelo
+    pcall(function()
+        if mousemoveabs and mouse1click and workspace.CurrentCamera then
+            local posBase = STATE.posBasePlot or Vector3.new(0, 0, 0)
+            local posPlot = posBase + Vector3.new(0, 5, 0)
+            local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(posPlot)
+            if onScreen then
+                mousemoveabs(screenPos.X, screenPos.Y)
+                task.wait(0.05)
+                mouse1click()
+            end
+        end
+    end)
+    
+    -- Paso 3: Esperar captura del hook
+    task.wait(CONFIG.VELOCIDAD_UI + 0.2)
+    
+    return STATE.ultimaPetKeyDetectada
+end
+
+-- ============================================================
+-- [11] DETECTAR POSICIÓN DEL PLOT
+-- ============================================================
+local function detectarPosicionPlot()
+    local pos = Vector3.new(0, 0, 0)
+    
+    pcall(function()
+        local plots = game.Workspace:FindFirstChild("Plots")
+        if plots then
+            for _, plot in ipairs(plots:GetChildren()) do
+                -- Buscar Baseplate
+                local bp = plot:FindFirstChild("Baseplate")
+                if not bp then
+                    for _, child in ipairs(plot:GetChildren()) do
+                        if child:IsA("BasePart") then
+                            bp = child
+                            break
+                        end
+                    end
+                end
+                if bp and bp:IsA("BasePart") then
+                    pos = bp.Position
+                    print("📍 Plot detectado: " .. tostring(pos) .. " en " .. bp:GetFullName())
+                    break
+                end
+            end
+        end
+    end)
+    
+    -- Verificar con mascotas ya colocadas
+    local carpetaPets = game.Workspace:FindFirstChild("Plots")
+    carpetaPets = carpetaPets and carpetaPets:FindFirstChild("Plot")
+    carpetaPets = carpetaPets and carpetaPets:FindFirstChild("Pets")
+    
+    if carpetaPets then
+        local count = 0
+        for _, pet in ipairs(carpetaPets:GetChildren()) do
+            if pet:IsA("Model") then
+                local hrp = pet:FindFirstChild("HumanoidRootPart") or pet.PrimaryPart
+                if hrp then
+                    pos = hrp.Position
+                    count = count + 1
+                    if count == 1 then
+                        print("📍 Mascota colocada en: " .. tostring(pos))
+                    end
+                end
+            end
+        end
+        if count > 0 then
+            print("   (" .. count .. " mascotas colocadas de referencia)")
+        end
+    end
+    
+    STATE.posBasePlot = pos
+    return pos
+end
+
+-- ============================================================
+-- [12] AUTO-EQUIP VÍA UI (funciona con el flujo natural)
+-- ============================================================
+local function autoEquiparViaUI(usarPotencial)
+    if STATE.isAutoEquiping or not STATE.running then return false end
+    STATE.isAutoEquiping = true
+    
+    local modo = usarPotencial and "POTENCIAL" or "ACTUAL"
+    print("\n╔══════════════════════════════════════════╗")
+    print("║  AUTO-EQUIP vía UI: " .. modo)
+    print("╚══════════════════════════════════════════╝")
+    
+    -- Detectar posición del plot
+    if not STATE.posBasePlot then
+        detectarPosicionPlot()
+    end
+    
+    -- 1. Leer colocadas
+    print("📖 Leyendo colocadas...")
+    local colocadas = obtenerColocadas()
+    print("   → " .. #colocadas .. " colocadas")
+    
+    if contar(STATE.cache) < 2 then
+        print("   ⚠️ Cache muy pequeño")
+        STATE.isAutoEquiping = false
+        return false
+    end
+    
+    -- 2. Construir ranking
+    local cacheLista = {}
+    for key, info in pairs(STATE.cache) do
+        if info.name and info.mutation then
+            local valor
+            if usarPotencial then
+                valor = calcularIncomePotencial(info.name, info.mutation)
+            else
+                valor = calcularIncomeActual(info.name, info.mutation, info.age or 0)
+            end
+            table.insert(cacheLista, {
+                key = key, name = info.name, mutation = info.mutation,
+                age = info.age or 0, valor = valor,
+            })
+        end
+    end
+    table.sort(cacheLista, function(a, b) return a.valor > b.valor end)
+    
+    -- 3. Mejores N
+    local mejoresN = {}
+    local keysUsadas = {}
+    for _, c in ipairs(cacheLista) do
+        if not keysUsadas[c.key] then
+            keysUsadas[c.key] = true
+            table.insert(mejoresN, c)
+            if #mejoresN >= STATE.slots then break end
+        end
+    end
+    
+    print("\n🏆 Mejores " .. #mejoresN .. ":")
+    for i, m in ipairs(mejoresN) do
+        print(string.format("   %2d. %-14s %-10s | %s",
+            i, m.name, m.mutation, formatearDinero(m.valor)))
+    end
+    
+    -- 4. Ver qué cambiar
+    local mejoresKeys = {}
+    for _, m in ipairs(mejoresN) do mejoresKeys[m.key] = m end
+    
+    local aQuitar = {}
+    for _, c in ipairs(colocadas) do
+        if not mejoresKeys[c.key] then
+            table.insert(aQuitar, c)
+        end
+    end
+    
+    print("\n📊 Plan:")
+    print("   → Quitar: " .. #aQuitar)
+    print("   → Colocar: " .. #mejoresN)
+    
+    -- 5. QUITAR TODAS las colocadas (para empezar limpio)
+    print("\n🔻 Quitando todas las colocadas...")
+    for i, c in ipairs(colocadas) do
+        if not STATE.running then break end
+        pcall(function() PickupPet:FireServer(c.key) end)
+        task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
+    end
+    task.wait(1.5)
+    
+    -- Verificar que se quitaron
+    local postQuitar = obtenerColocadas()
+    print("   → Quedan " .. #postQuitar .. " colocadas")
+    
+    -- 6. COLOCAR las mejores VÍA UI
+    print("\n🔺 Colocando " .. #mejoresN .. " vía UI...")
+    local colocadasExito = 0
+    local colocadasKeys = {}
+    
+    for i, m in ipairs(mejoresN) do
+        if not STATE.running then break end
+        
+        print("\n   [" .. i .. "/" .. #mejoresN .. "] " .. m.name .. " " .. m.mutation)
+        
+        -- Buscar el item en el grid
+        local item = buscarItemEnGrid(m.name, m.mutation)
+        if not item then
+            print("      ⚠️ Item no encontrado en grid")
+        else
+            print("      📦 Item encontrado, colocando...")
+            local keyCapturada = colocarViaUI(item)
+            
+            if keyCapturada then
+                colocadasExito = colocadasExito + 1
+                colocadasKeys[keyCapturada] = true
+                print("      ✅ Colocada: " .. keyCapturada:sub(1,8))
+                
+                -- Actualizar cache con la key real
+                if STATE.cache[keyCapturada] then
+                    STATE.cache[keyCapturada].age = STATE.cache[keyCapturada].age or 0
+                end
+            else
+                print("      ❌ No se capturó la key")
+            end
+        end
+        
+        task.wait(CONFIG.VELOCIDAD_PLACE)
+    end
+    
+    -- 7. Verificar
+    print("\n🔍 Verificando resultado...")
+    task.wait(1)
+    local final = obtenerColocadas()
+    print("   → " .. #final .. " mascotas colocadas al final")
+    
+    -- 8. Fallback: si <50% se colocaron, usar PlaceBest
+    if colocadasExito < math.floor(#mejoresN / 2) then
+        print("\n⚠️ Colocación parcial. Usando PlaceBest del juego...")
+        if pulsarPlaceBest() then
+            print("   ✅ PlaceBest ejecutado")
+            task.wait(2)
+            final = obtenerColocadas()
+            print("   → " .. #final .. " mascotas colocadas tras PlaceBest")
+        end
+    end
+    
+    guardarCache()
+    print("\n✅ AUTO-EQUIP COMPLETADO (" .. colocadasExito .. "/" .. #mejoresN .. ")")
+    STATE.isAutoEquiping = false
+    return true
+end
+
+-- ============================================================
+-- [13] HOOKS
+-- ============================================================
+local function instalarHooks()
+    pcall(function()
+        local mt = getrawmetatable(game)
+        local oldNC = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local m = getnamecallmethod()
+            if m == "FireServer" and (self == PlacePet or self == PickupPet) then
+                local args = {...}
+                for i, v in ipairs(args) do
+                    if type(v) == "string" and v:match(UUID_PATTERN) then
+                        if self == PlacePet and i == 1 then
+                            STATE.ultimaPetKeyDetectada = v
+                        end
+                    end
+                end
+            end
+            return oldNC(self, ...)
+        end)
+        setreadonly(mt, true)
+    end)
+end
+
 -- ============================================================
 -- [14] APRENDER 1 ITEM
 -- ============================================================
@@ -549,21 +585,19 @@ local function aprenderUnItem(item)
     STATE.ultimaPetKeyDetectada = nil
     local nombre, mutacion = obtenerDatosDeItem(item)
     
-    -- Click en item
     pcall(function()
         if firesignal then firesignal(item.MouseButton1Click) end
     end)
     task.wait(CONFIG.VELOCIDAD_UI)
     
-    -- Click en suelo
     pcall(function()
         if mousemoveabs and mouse1click and workspace.CurrentCamera then
-            local posBase = obtenerPosicionPlot()
+            local posBase = STATE.posBasePlot or Vector3.new(0, 0, 0)
             local posPlot = posBase + Vector3.new(0, 5, 0)
             local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(posPlot)
             if onScreen then
                 mousemoveabs(screenPos.X, screenPos.Y)
-                task.wait(0.02)
+                task.wait(0.05)
                 mouse1click()
             end
         end
@@ -582,9 +616,8 @@ local function aprenderUnItem(item)
         }
         pcall(function() PickupPet:FireServer(keyCapturada) end)
         task.wait(CONFIG.VELOCIDAD_LIMPIEZA)
-        return true, (esNueva and "NUEVA" or "act") .. ": " .. (nombre or "?") .. " [" .. keyCapturada:sub(1,8) .. "]"
+        return true, (esNueva and "NUEVA" or "act") .. ": " .. (nombre or "?")
     else
-        -- Fallback: quitar lo que haya
         local colocadas = obtenerColocadas()
         for _, c in ipairs(colocadas) do
             pcall(function() PickupPet:FireServer(c.key) end)
@@ -601,6 +634,10 @@ local function aprenderPorUIRapido(onProgress, limite)
     local grid = obtenerGrid()
     if not grid then
         return {error = "Grid no encontrado. Abre la UI de inventario."}
+    end
+    
+    if not STATE.posBasePlot then
+        detectarPosicionPlot()
     end
     
     local items = {}
@@ -651,7 +688,6 @@ local function aprenderPorUIRapido(onProgress, limite)
         if onProgress then onProgress(idx, total, capturados) end
     end
     
-    -- Enriquecimiento
     print("\n📝 Enriqueciendo age/income...")
     pcall(function()
         local count = 0
@@ -689,7 +725,7 @@ end
 -- ============================================================
 cargarCache()
 print("╔══════════════════════════════════════════╗")
-print("║  RIDE A PET HUB v15                      ║")
+print("║  RIDE A PET HUB v16                      ║")
 print("╚══════════════════════════════════════════╝")
 print("📂 Cache inicial: " .. contar(STATE.cache))
 
@@ -697,15 +733,14 @@ instalarHooks()
 print("🎣 Hooks instalados")
 
 task.spawn(function()
-    task.wait(0.5)
+    task.wait(1)
+    detectarPosicionPlot()
     local r = detectarRebirthDesdeColocadas()
     if r > 0 then
         STATE.rebirth = r
         STATE.rebirthMult = r + 1
         STATE.slots = 5 + r
         print("📊 Rebirth: " .. r .. " | Slots: " .. (5+r))
-    else
-        print("⚠️ No se detectó rebirth. Coloca alguna mascota y re-ejecuta.")
     end
 end)
 
@@ -715,15 +750,13 @@ end)
 local Window = Rayfield:CreateWindow({
     Name = "Ride a Pet - Auto Equip Hub",
     LoadingTitle = "Cargando...",
-    LoadingSubtitle = "v15",
+    LoadingSubtitle = "v16",
     ConfigurationSaving = { Enabled = false },
     Discord = { Enabled = false },
     KeySystem = false,
 })
 
--- ─────────────────────────────────────────────────────────
 -- PESTAÑA: INICIO
--- ─────────────────────────────────────────────────────────
 local TabInicio = Window:CreateTab("Inicio", 4483362458)
 TabInicio:CreateSection("Estado")
 
@@ -780,6 +813,14 @@ TabInicio:CreateButton({
 })
 
 TabInicio:CreateButton({
+    Name = "📍 Detectar posición del plot",
+    Callback = function()
+        detectarPosicionPlot()
+        Rayfield:Notify({ Title = "📍 Plot", Content = tostring(STATE.posBasePlot), Duration = 4 })
+    end,
+})
+
+TabInicio:CreateButton({
     Name = "🔍 Leer colocadas (once)",
     Callback = function()
         task.spawn(function()
@@ -788,18 +829,6 @@ TabInicio:CreateButton({
             lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
             Rayfield:Notify({ Title = "Colocadas", Content = #colocadas .. " leídas", Duration = 3 })
         end)
-    end,
-})
-
-TabInicio:CreateButton({
-    Name = "🎯 Pulsar 'Place Best' (once)",
-    Callback = function()
-        local ok = pulsarPlaceBest()
-        Rayfield:Notify({
-            Title = ok and "✅" or "❌",
-            Content = ok and "PlaceBest ejecutado" or "Botón no disponible",
-            Duration = 3,
-        })
     end,
 })
 
@@ -860,7 +889,7 @@ TabInicio:CreateButton({
 })
 
 TabInicio:CreateButton({
-    Name = "🎓 Aprender 5 items (once)",
+    Name = "🎓 Aprender 10 items (once)",
     Callback = function()
         if STATE.isLearning then return end
         STATE.isLearning = true
@@ -869,24 +898,7 @@ TabInicio:CreateButton({
                 pcall(function()
                     lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
                 end)
-            end, 5)
-            lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
-            STATE.isLearning = false
-        end)
-    end,
-})
-
-TabInicio:CreateButton({
-    Name = "🎓 Aprender 20 items (once)",
-    Callback = function()
-        if STATE.isLearning then return end
-        STATE.isLearning = true
-        task.spawn(function()
-            aprenderPorUIRapido(function(i, total, capturados)
-                pcall(function()
-                    lblProgresoUI:Set(string.format("UI %d/%d (%d capturados)", i, total, capturados))
-                end)
-            end, 20)
+            end, 10)
             lblCache:Set("💾 Cache: " .. contar(STATE.cache) .. " mascotas")
             STATE.isLearning = false
         end)
@@ -900,9 +912,7 @@ TabInicio:CreateButton({
     end,
 })
 
--- ─────────────────────────────────────────────────────────
 -- PESTAÑA: AUTO EQUIP
--- ─────────────────────────────────────────────────────────
 local TabAuto = Window:CreateTab("Auto Equip", 4483362458)
 TabAuto:CreateSection("Modo continuo (loop)")
 
@@ -917,7 +927,7 @@ toggleActualRef = TabAuto:CreateToggle({
         if value then
             STATE.modoAutoEquip = "actual"
             if togglePotencialRef then togglePotencialRef:Set(false) end
-            task.spawn(function() autoEquipar(false) end)
+            task.spawn(function() autoEquiparViaUI(false) end)
         else
             if STATE.modoAutoEquip == "actual" then STATE.modoAutoEquip = nil end
         end
@@ -932,7 +942,7 @@ togglePotencialRef = TabAuto:CreateToggle({
         if value then
             STATE.modoAutoEquip = "potencial"
             if toggleActualRef then toggleActualRef:Set(false) end
-            task.spawn(function() autoEquipar(true) end)
+            task.spawn(function() autoEquiparViaUI(true) end)
         else
             if STATE.modoAutoEquip == "potencial" then STATE.modoAutoEquip = nil end
         end
@@ -944,13 +954,13 @@ TabAuto:CreateSection("Ejecutar UNA VEZ")
 TabAuto:CreateButton({
     Name = "▶️ Auto Equip UNA VEZ (SIN Potencial)",
     Callback = function()
+        if STATE.isLearning or STATE.isAutoEquiping then
+            Rayfield:Notify({ Title = "⚠️", Content = "En curso", Duration = 3 })
+            return
+        end
         task.spawn(function()
-            local ok = autoEquipar(false)
-            if ok then
-                Rayfield:Notify({ Title = "✅ Auto Equip", Content = "Ejecutado", Duration = 3 })
-            else
-                Rayfield:Notify({ Title = "⚠️ Auto Equip", Content = "Falló o sin cambios", Duration = 3 })
-            end
+            autoEquiparViaUI(false)
+            Rayfield:Notify({ Title = "✅", Content = "Auto Equip completado", Duration = 3 })
         end)
     end,
 })
@@ -958,13 +968,13 @@ TabAuto:CreateButton({
 TabAuto:CreateButton({
     Name = "🚀 Auto Equip UNA VEZ (CON Potencial)",
     Callback = function()
+        if STATE.isLearning or STATE.isAutoEquiping then
+            Rayfield:Notify({ Title = "⚠️", Content = "En curso", Duration = 3 })
+            return
+        end
         task.spawn(function()
-            local ok = autoEquipar(true)
-            if ok then
-                Rayfield:Notify({ Title = "✅ Auto Equip", Content = "Ejecutado", Duration = 3 })
-            else
-                Rayfield:Notify({ Title = "⚠️ Auto Equip", Content = "Falló o sin cambios", Duration = 3 })
-            end
+            autoEquiparViaUI(true)
+            Rayfield:Notify({ Title = "✅", Content = "Auto Equip completado", Duration = 3 })
         end)
     end,
 })
@@ -972,16 +982,10 @@ TabAuto:CreateButton({
 TabAuto:CreateSection("Debug")
 
 TabAuto:CreateButton({
-    Name = "🧪 Test: colocar 1 mascota (primera del cache)",
+    Name = "🧪 Test: colocar 1 mascota",
     Callback = function()
         task.spawn(function()
-            -- Limpiar
-            local colocadas = obtenerColocadas()
-            for _, c in ipairs(colocadas) do
-                pcall(function() PickupPet:FireServer(c.key) end)
-                task.wait(0.3)
-            end
-            task.wait(1)
+            if not STATE.posBasePlot then detectarPosicionPlot() end
             
             -- Coger primera del cache
             local primera = nil
@@ -997,26 +1001,52 @@ TabAuto:CreateButton({
                 return
             end
             
-            print("🧪 Test: colocando " .. primera.name .. " " .. primera.mutation)
-            colocarMascota(primera.key, 1)
-            task.wait(2)
+            print("\n🧪 TEST: Colocando " .. primera.name .. " " .. primera.mutation)
             
-            local resultado = obtenerColocadas()
-            if #resultado > 0 then
-                print("✅ ÉXITO: " .. #resultado .. " mascotas colocadas")
-                Rayfield:Notify({ Title = "✅ Test OK", Content = "Se colocó correctamente", Duration = 4 })
+            -- Limpiar
+            print("🧹 Quitando colocadas...")
+            local colocadas = obtenerColocadas()
+            for _, c in ipairs(colocadas) do
+                pcall(function() PickupPet:FireServer(c.key) end)
+                task.wait(0.3)
+            end
+            task.wait(1)
+            
+            -- Buscar item
+            local item = buscarItemEnGrid(primera.name, primera.mutation)
+            if not item then
+                print("❌ Item no encontrado en el grid")
+                Rayfield:Notify({ Title = "❌", Content = "Item no en grid", Duration = 4 })
+                return
+            end
+            
+            print("📦 Item encontrado, colocando vía UI...")
+            local keyCapturada = colocarViaUI(item)
+            
+            if keyCapturada then
+                print("✅ Key capturada: " .. keyCapturada)
+                task.wait(1)
+                local resultado = obtenerColocadas()
+                print("📊 Resultado: " .. #resultado .. " mascotas colocadas")
+                Rayfield:Notify({
+                    Title = "✅ Test OK",
+                    Content = "Colocada correctamente",
+                    Duration = 4,
+                })
             else
-                print("❌ FALLÓ: 0 mascotas colocadas")
-                Rayfield:Notify({ Title = "❌ Test falló", Content = "El servidor no colocó la mascota", Duration = 4 })
+                print("❌ No se capturó la key")
+                Rayfield:Notify({
+                    Title = "❌ Test falló",
+                    Content = "PlacePet no disparado",
+                    Duration = 4,
+                })
             end
         end)
     end,
 })
 
-TabAuto:CreateSection("Control manual")
-
 TabAuto:CreateButton({
-    Name = "🔻 Quitar TODAS las colocadas (once)",
+    Name = "🔻 Quitar TODAS las colocadas",
     Callback = function()
         task.spawn(function()
             local colocadas = obtenerColocadas()
@@ -1024,14 +1054,12 @@ TabAuto:CreateButton({
                 pcall(function() PickupPet:FireServer(c.key) end)
                 task.wait(0.25)
             end
-            Rayfield:Notify({ Title = "Quitadas", Content = #colocadas .. " mascotas", Duration = 3 })
+            Rayfield:Notify({ Title = "Quitadas", Content = #colocadas, Duration = 3 })
         end)
     end,
 })
 
--- ─────────────────────────────────────────────────────────
 -- PESTAÑA: RANKING
--- ─────────────────────────────────────────────────────────
 local TabRanking = Window:CreateTab("Ranking", 4483362458)
 
 TabRanking:CreateButton({
@@ -1081,7 +1109,7 @@ TabRanking:CreateButton({
 })
 
 TabRanking:CreateButton({
-    Name = "📋 Mostrar colocadas (once)",
+    Name = "📋 Mostrar colocadas",
     Callback = function()
         task.spawn(function()
             local colocadas = obtenerColocadas()
@@ -1094,9 +1122,7 @@ TabRanking:CreateButton({
     end,
 })
 
--- ─────────────────────────────────────────────────────────
 -- PESTAÑA: CONFIG
--- ─────────────────────────────────────────────────────────
 local TabConfig = Window:CreateTab("Config", 4483362458)
 
 TabConfig:CreateSlider({
@@ -1110,27 +1136,13 @@ TabConfig:CreateSlider({
 })
 
 TabConfig:CreateSlider({
-    Name = "⚡ Velocidad UI (seg por paso)",
+    Name = "⚡ Velocidad UI",
     Range = { 0.08, 1.0 },
     Increment = 0.02,
     Suffix = "s",
     CurrentValue = CONFIG.VELOCIDAD_UI,
     Flag = "VelocidadUI",
     Callback = function(value) CONFIG.VELOCIDAD_UI = value end,
-})
-
-TabConfig:CreateToggle({
-    Name = "Usar PlaceBest como fallback",
-    CurrentValue = true,
-    Flag = "UseFallback",
-    Callback = function(value) CONFIG.USAR_PLACEBEST_FALLBACK = value end,
-})
-
-TabConfig:CreateToggle({
-    Name = "Verificar placement",
-    CurrentValue = true,
-    Flag = "Verify",
-    Callback = function(value) CONFIG.VERIFICAR_PLACEMENT = value end,
 })
 
 TabConfig:CreateButton({
@@ -1144,14 +1156,14 @@ TabConfig:CreateButton({
 })
 
 TabConfig:CreateButton({
-    Name = "💾 Guardar cache (once)",
+    Name = "💾 Guardar cache",
     Callback = function()
         guardarCache()
     end,
 })
 
 TabConfig:CreateButton({
-    Name = "🔄 Resetear índice de aprendizaje",
+    Name = "🔄 Resetear índice",
     Callback = function()
         STATE.indiceAprendizaje = 0
         Rayfield:Notify({ Title = "Reset", Content = "Índice a 0", Duration = 3 })
@@ -1159,7 +1171,7 @@ TabConfig:CreateButton({
 })
 
 TabConfig:CreateButton({
-    Name = "🛑 Detener todos los loops",
+    Name = "🛑 Detener todo",
     Callback = function()
         STATE.running = false
     end,
@@ -1172,7 +1184,7 @@ task.spawn(function()
     while STATE.running do
         task.wait(CONFIG.INTERVALO_AUTO_EQUIP)
         if STATE.running and STATE.modoAutoEquip then
-            pcall(function() autoEquipar(STATE.modoAutoEquip == "potencial") end)
+            pcall(function() autoEquiparViaUI(STATE.modoAutoEquip == "potencial") end)
         end
     end
 end)
@@ -1186,12 +1198,12 @@ end)
 
 pcall(function()
     Rayfield:Notify({
-        Title = "✅ Hub v15 cargado",
+        Title = "✅ Hub v16 cargado",
         Content = contar(STATE.cache) .. " en cache",
         Duration = 6,
     })
 end)
 
-print("\n✅ HUB v15 CARGADO")
+print("\n✅ HUB v16 CARGADO")
 print("📌 Cache: " .. contar(STATE.cache))
-print("📌 Usa '🧪 Test' en Auto Equip para verificar que funciona")
+print("📌 Auto-equip ahora usa el flujo UI (funciona siempre)")
