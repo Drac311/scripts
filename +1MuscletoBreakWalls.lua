@@ -21,7 +21,7 @@ local Window = Library:CreateWindow({
 	StartVisible = true,
 	ConfigName = "MuscleBreakWalls",
 	-- For "Auto Execute" (2ndPage): RAW URL of THIS script (upload it to your repo with this name)
-	ScriptUrl = "https://raw.githubusercontent.com/Drac311/lib/refs/heads/main/MuscleBreakWalls.lua",
+	ScriptUrl = "https://raw.githubusercontent.com/Drac311/lib/refs/heads/main/+1MuscletoBreakWalls.lua",
 })
 
 local Tab = Window:CreateTab("Train") -- 1st call -> MainPage
