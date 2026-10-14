@@ -185,13 +185,7 @@ local function kickSelf()
     end)
 end
 
-local function exterminateSelf()
-    pcall(function()
-        SG:SetCore("SendNotification", {
-            Title = "Exterminate", Text = "Closing this script...", Duration = 2,
-        })
-    end)
-
+local function restoreHooks()
     if state.connection then
         pcall(function() state.connection:Disconnect() end)
         state.connection = nil
@@ -223,14 +217,6 @@ local function exterminateSelf()
     state = {}
     pcall(function() getgenv().DeviceSpoofer = nil end)
     if getgenv_device ~= nil then getgenv_device = nil end
-
-    pcall(function()
-        SG:SetCore("SendNotification", {
-            Title = "Exterminate", Text = "Script closed", Duration = 2,
-        })
-    end)
-
-    pcall(function() Window:Destroy() end)
 end
 
 Tab:CreateLabel("--- Device ---")
@@ -262,13 +248,6 @@ Tab:CreateButton({
     Callback = kickSelf,
 })
 
-Tab:CreateLabel("--- Danger ---")
-
-Tab:CreateButton({
-    Name = "Exterminate Script",
-    Callback = exterminateSelf,
-})
-
 Tab:CreateLabel("Hotkeys: [Y] 1v1  [N] Kick  [U] Toggle Device  [J] Tidal  [H] Exterminate")
 
 if state.connection then
@@ -297,7 +276,8 @@ state.connection = UIS.InputBegan:Connect(function(input, gameProcessed)
     elseif input.KeyCode == Enum.KeyCode.J then
         runTidalWave()
     elseif input.KeyCode == Enum.KeyCode.H then
-        exterminateSelf()
+        restoreHooks()
+        pcall(function() Window:Destroy() end)
     end
 end)
 
@@ -316,7 +296,10 @@ local API = {
     RunTidal    = runTidalWave,
     Queue1v1    = queue1v1,
     Kick        = kickSelf,
-    Exterminate = exterminateSelf,
+    Exterminate = function()
+        restoreHooks()
+        pcall(function() Window:Destroy() end)
+    end,
     SelfURL     = SELF_URL,
     WaitTime    = WAIT_TIME,
 }
@@ -324,8 +307,4 @@ local API = {
 getgenv().DeviceSpoofer = API
 getgenv_device          = API
 
-Window:OnDestroy(function()
-    if state.connection then
-        pcall(function() state.connection:Disconnect() end)
-    end
-end)
+Window:OnDestroy(restoreHooks)
