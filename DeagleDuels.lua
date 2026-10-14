@@ -1,7 +1,7 @@
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Drac311/lib/refs/heads/main/DraxiLib.lua"))()
 
 local TIDAL_URL  = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
-local SELF_URL   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/pvp-qot"
+local SELF_URL   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/DeagleDuels.lua"
 local WAIT_TIME  = 3
 local KICK_REASON = "Drac's Script - Bye!"
 
