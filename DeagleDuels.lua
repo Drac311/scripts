@@ -1,16 +1,8 @@
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Drac311/lib/refs/heads/main/DraxiLib.lua"))()
 
 local TIDAL_URL  = "https://raw.githubusercontent.com/fluidnarrator30/Tidal-Wave/refs/heads/main/Loader.lua"
-local SELF_URL   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/DeagleDuels.lua"
-local WAIT_TIME  = 3
+local SELF_URL   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/pvp-qot"
 local KICK_REASON = "Drac's Script - Bye!"
-
-if queue_on_teleport then
-    queue_on_teleport(([[
-        task.wait(%d)
-        loadstring(game:HttpGet("%s", true))()
-    ]]):format(WAIT_TIME, SELF_URL))
-end
 
 local SG  = game:GetService("StarterGui")
 local UIS = game:GetService("UserInputService")
@@ -209,10 +201,6 @@ local function restoreHooks()
         end)
     end
 
-    if queue_on_teleport then
-        pcall(function() queue_on_teleport("") end)
-    end
-
     getgenv().__ds_state = nil
     state = {}
     pcall(function() getgenv().DeviceSpoofer = nil end)
@@ -301,7 +289,6 @@ local API = {
         pcall(function() Window:Destroy() end)
     end,
     SelfURL     = SELF_URL,
-    WaitTime    = WAIT_TIME,
 }
 
 getgenv().DeviceSpoofer = API
