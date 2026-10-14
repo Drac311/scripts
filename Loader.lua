@@ -3,6 +3,7 @@ local Scripts = {
     ["79268393072444"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/SellLemons.lua",
     ["91374382281493"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/HowToDrift.lua",
     ["89677157950817"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BrainrotTrading.lua",
+    ["10769709426"]   = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BrainrotTrading.lua",
     ["120766736586332"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/%2B1StrengthPerClick.lua",
     ["108284916145176"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BiggerEveryStep.lua",
     ["93829858358973"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/%2B1MuscletoBreakWalls.lua",
