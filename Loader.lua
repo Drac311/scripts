@@ -7,6 +7,7 @@ local Scripts = {
     ["8185839087"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/BiggerEveryStep.lua",
     ["10152905521"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/%2B1MuscletoBreakWalls.lua",
     ["10323871857"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/Zenith.lua",
+    ["10765256426"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/WheelieOnKukirin.lua",
     ["10770342542"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/EscooterLife.lua",
     ["10514330086"] = "https://raw.githubusercontent.com/Drac311/scripts/refs/heads/main/DeagleDuels.lua",
 }
